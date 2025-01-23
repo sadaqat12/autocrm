@@ -11,7 +11,7 @@ interface Organization {
 
 interface Invitation {
   id: string;
-  organization: Organization;
+  organization: Organization | null;
   created_at: string;
   email: string;
   status: string;
@@ -43,42 +43,65 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
   }, []);
 
   const fetchInvitations = async () => {
-    if (!user?.email) return;
+    if (!user?.id) return;
     
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // First get the invitations
+      const { data: invitationData, error: invitationError } = await supabase
         .from('organization_users')
         .select(`
           id,
           created_at,
-          user_email,
+          user_id,
           status,
-          organization:organizations (
-            id,
-            name
-          )
+          organization_id
         `)
-        .eq('user_email', user.email)
-        .eq('status', 'pending')
-        .returns<{
-          id: string;
-          created_at: string;
-          user_email: string;
-          status: string;
-          organization: Organization;
-        }[]>();
+        .eq('user_id', user.id)
+        .eq('status', 'pending');
 
-      if (error) throw error;
-      setInvitations(data?.map(item => ({
-        id: item.id,
-        created_at: item.created_at,
-        email: item.user_email,
-        status: item.status,
-        organization: item.organization
-      })) || []);
+      if (invitationError) {
+        console.error('Error fetching invitations:', invitationError);
+        throw invitationError;
+      }
+      console.log('Raw invitation data:', invitationData);
+
+      if (!invitationData?.length) {
+        setInvitations([]);
+        return;
+      }
+
+      // Then get the organizations through a separate query
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .select('id, name')
+        .in('id', invitationData.map(inv => inv.organization_id));
+
+      if (orgError) {
+        console.error('Error fetching organizations:', orgError);
+        throw orgError;
+      }
+      console.log('Organization data:', orgData);
+
+      // Map the data together
+      const mappedInvitations = invitationData.map(invitation => {
+        const orgInfo = orgData?.find(org => org.id === invitation.organization_id);
+        return {
+          id: invitation.id,
+          created_at: invitation.created_at,
+          email: invitation.user_id,
+          status: invitation.status,
+          organization: orgInfo ? {
+            id: orgInfo.id,
+            name: orgInfo.name
+          } : null
+        } as Invitation;
+      });
+      
+      console.log('Final mapped invitations:', mappedInvitations);
+      setInvitations(mappedInvitations);
     } catch (error) {
-      console.error('Error fetching invitations:', error);
+      console.error('Error in fetchInvitations:', error);
     } finally {
       setLoading(false);
     }
@@ -86,33 +109,116 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
 
   const acceptInvitation = async (invitationId: string) => {
     try {
-      const { error } = await supabase
+      console.log('Starting invitation acceptance for ID:', invitationId);
+      console.log('Current user ID:', user?.id);
+
+      // First verify the invitation exists and is pending
+      const { data: invitation, error: verifyError } = await supabase
+        .from('organization_users')
+        .select('*')
+        .eq('id', invitationId)
+        .eq('user_id', user?.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (verifyError) {
+        console.error('Error verifying invitation:', verifyError);
+        throw new Error('Could not verify invitation status');
+      }
+
+      if (!invitation) {
+        console.error('No invitation found with ID:', invitationId);
+        throw new Error('Invitation not found');
+      }
+
+      console.log('Found invitation:', invitation);
+
+      // Update the status - only include necessary conditions for RLS policy
+      const { error: updateError } = await supabase
         .from('organization_users')
         .update({ status: 'accepted' })
-        .eq('id', invitationId);
+        .eq('id', invitationId)
+        .eq('user_id', user?.id);  // RLS policy will handle the status check
 
-      if (error) throw error;
-      
+      if (updateError) {
+        console.error('Error updating invitation:', updateError);
+        throw updateError;
+      }
+
+      // Verify the update in a separate query
+      const { data: verifyUpdate, error: verifyUpdateError } = await supabase
+        .from('organization_users')
+        .select('status')
+        .eq('id', invitationId)
+        .single();
+
+      console.log('Status after update:', {
+        status: verifyUpdate?.status,
+        error: verifyUpdateError
+      });
+
+      if (verifyUpdate?.status !== 'accepted') {
+        throw new Error('Failed to update invitation status');
+      }
+
       // Refresh the invitations list
-      fetchInvitations();
+      await fetchInvitations();
+      
+      // Force refresh the page to update all components
+      window.location.reload();
     } catch (error) {
-      console.error('Error accepting invitation:', error);
+      console.error('Error in acceptInvitation:', error);
+      throw error;
     }
   };
 
   const rejectInvitation = async (invitationId: string) => {
     try {
-      const { error } = await supabase
+      console.log('Starting invitation rejection for ID:', invitationId);
+
+      // First verify the invitation exists and is pending
+      const { data: invitation, error: verifyError } = await supabase
+        .from('organization_users')
+        .select('*')
+        .eq('id', invitationId)
+        .eq('user_id', user?.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (verifyError) {
+        console.error('Error verifying invitation:', verifyError);
+        throw new Error('Could not verify invitation status');
+      }
+
+      if (!invitation) {
+        console.error('No invitation found with ID:', invitationId);
+        throw new Error('Invitation not found');
+      }
+
+      console.log('Found invitation:', invitation);
+
+      // Update with proper conditions
+      const { data: updateData, error: updateError } = await supabase
         .from('organization_users')
         .update({ status: 'rejected' })
-        .eq('id', invitationId);
+        .eq('id', invitationId)
+        .eq('user_id', user?.id)
+        .eq('status', 'pending')
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (updateError) {
+        console.error('Error updating invitation:', updateError);
+        throw updateError;
+      }
+
+      console.log('Update result:', updateData);
       
       // Refresh the invitations list
-      fetchInvitations();
+      await fetchInvitations();
     } catch (error) {
       console.error('Error rejecting invitation:', error);
+      throw error;
     }
   };
 
@@ -233,11 +339,13 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
 
       {/* Invites Modal */}
       {showInvitesModal && (
-        <div className="fixed inset-0 z-10 overflow-y-auto">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowInvitesModal(false)} />
 
-            <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div className="relative inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
               <div>
                 <div className="mt-3 text-center sm:mt-0 sm:text-left">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Organization Invitations</h3>
@@ -255,13 +363,13 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
                                 <div className="flex-shrink-0">
                                   <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
                                     <span className="text-blue-600 font-medium text-lg">
-                                      {invitation.organization.name.charAt(0).toUpperCase()}
+                                      {invitation.organization?.name?.charAt(0).toUpperCase() || '?'}
                                     </span>
                                   </div>
                                 </div>
                                 <div className="ml-4">
                                   <h4 className="text-sm font-medium text-gray-900 truncate">
-                                    {invitation.organization.name}
+                                    {invitation.organization?.name || 'Unknown Organization'}
                                   </h4>
                                   <p className="text-sm text-gray-500">
                                     Invited on {new Date(invitation.created_at).toLocaleDateString()}

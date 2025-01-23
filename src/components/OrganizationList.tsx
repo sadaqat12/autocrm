@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
 
 interface Organization {
   id: string;
@@ -41,7 +41,7 @@ export default function OrganizationList({ onNewOrganization, onSelectOrganizati
       const { data: memberOrgs, error: memberError } = await supabase
         .from('organization_users')
         .select('organization_id')
-        .eq('user_email', userData.user.email);
+        .eq('user_id', userData.user.id);
 
       if (memberError) throw memberError;
 

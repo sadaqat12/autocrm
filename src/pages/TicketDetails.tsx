@@ -1,28 +1,53 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Database } from '../lib/database.types';
 import { format } from 'date-fns';
 import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
+import { Ticket as TicketType, TicketStatus, TicketPriority, TicketCategory, MessageType } from '../lib/types';
 
-type Ticket = Database['public']['Tables']['tickets']['Row'] & {
-  assigned_to_profile?: Database['public']['Tables']['profiles']['Row'];
-  created_by_profile?: Database['public']['Tables']['profiles']['Row'];
-};
+interface Profile {
+  id: string;
+  full_name: string;
+  phone?: string;
+  role: string;
+}
 
-type TicketMessage = Database['public']['Tables']['ticket_messages']['Row'] & {
-  created_by_profile?: Database['public']['Tables']['profiles']['Row'];
-  attachments?: Database['public']['Tables']['ticket_attachments']['Row'][];
-};
+interface TicketMessage {
+  id: string;
+  ticket_id: string;
+  content: string;
+  message_type: MessageType;
+  created_by: string;
+  created_at: string;
+  created_by_profile?: Profile;
+  attachments?: TicketAttachment[];
+}
+
+interface TicketAttachment {
+  id: string;
+  ticket_id: string;
+  message_id?: string;
+  file_name: string;
+  file_url: string;
+  created_at: string;
+}
+
+interface TicketWithProfiles extends TicketType {
+  assigned_to_profile?: Profile;
+  created_by_profile?: Profile;
+}
 
 export default function TicketDetails() {
   const { ticketId } = useParams();
   const { user, profile } = useAuth();
-  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [ticket, setTicket] = useState<TicketWithProfiles | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
+  const [messageType, setMessageType] = useState<MessageType>('public');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     async function loadTicketDetails() {
@@ -33,8 +58,18 @@ export default function TicketDetails() {
           .from('tickets')
           .select(`
             *,
-            assigned_to_profile:profiles!tickets_assigned_to_fkey(*),
-            created_by_profile:profiles!tickets_created_by_fkey(*)
+            assigned_to_profile:profiles!tickets_assigned_to_fkey(
+              id,
+              full_name,
+              phone,
+              role
+            ),
+            created_by_profile:profiles!tickets_created_by_fkey(
+              id,
+              full_name,
+              phone,
+              role
+            )
           `)
           .eq('id', ticketId)
           .single(),
@@ -43,7 +78,12 @@ export default function TicketDetails() {
           .from('ticket_messages')
           .select(`
             *,
-            created_by_profile:profiles(*),
+            created_by_profile:profiles(
+              id,
+              full_name,
+              phone,
+              role
+            ),
             attachments:ticket_attachments(*)
           `)
           .eq('ticket_id', ticketId)
@@ -51,11 +91,11 @@ export default function TicketDetails() {
       ]);
 
       if (ticketResult.data) {
-        setTicket(ticketResult.data);
+        setTicket(ticketResult.data as TicketWithProfiles);
       }
 
       if (messagesResult.data) {
-        setMessages(messagesResult.data);
+        setMessages(messagesResult.data as TicketMessage[]);
       }
 
       setLoading(false);
@@ -79,39 +119,64 @@ export default function TicketDetails() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !user || !ticketId) return;
-
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
+    
+    setSendingMessage(true);
+    
     try {
-      setSendingMessage(true);
-      const { data: message, error } = await supabase
+      const { data, error } = await supabase
         .from('ticket_messages')
-        .insert([
-          {
-            ticket_id: ticketId,
-            content: newMessage.trim(),
-            message_type: 'public',
-            created_by: user.id
-          }
-        ])
+        .insert({
+          ticket_id: ticketId,
+          content: newMessage,
+          message_type: messageType,
+          created_by: user?.id
+        })
         .select(`
           *,
-          created_by_profile:profiles(*),
+          created_by_profile:profiles(
+            id,
+            full_name,
+            phone,
+            role
+          ),
           attachments:ticket_attachments(*)
-        `)
-        .single();
+        `);
+        
+      if (error) throw error;
+
+      if (data && data[0]) {
+        setMessages(prev => [...prev, data[0] as TicketMessage]);
+        setNewMessage('');
+      }
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      setError('Error sending message: ' + error.message);
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: TicketStatus) => {
+    if (!ticket || !ticketId) return;
+    
+    setUpdatingStatus(true);
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ status: newStatus })
+        .eq('id', ticketId);
 
       if (error) throw error;
 
-      if (message) {
-        setMessages(prev => [...prev, message]);
-        setNewMessage('');
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      alert('Failed to send message. Please try again.');
+      setTicket(prev => prev ? { ...prev, status: newStatus } : null);
+    } catch (error: any) {
+      console.error('Error updating status:', error);
+      setError('Error updating status: ' + error.message);
     } finally {
-      setSendingMessage(false);
+      setUpdatingStatus(false);
     }
   };
 
@@ -130,6 +195,8 @@ export default function TicketDetails() {
       </div>
     );
   }
+
+  const canUpdateTicket = profile?.role === 'admin' || profile?.role === 'agent';
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -168,16 +235,38 @@ export default function TicketDetails() {
               <span className="capitalize">Status: {ticket.status}</span>
               <span>•</span>
               <span className="capitalize">Priority: {ticket.priority}</span>
+              <span>•</span>
+              <span className="capitalize">Category: {ticket.category}</span>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-              Update Status
-            </button>
-            <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
-              Assign
-            </button>
-          </div>
+          {canUpdateTicket && (
+            <div className="flex gap-2">
+              <div className="relative">
+                <button
+                  disabled={updatingStatus}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {updatingStatus ? 'Updating...' : 'Update Status'}
+                </button>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 hidden group-hover:block">
+                  <div className="py-1">
+                    {(['open', 'in_progress', 'resolved', 'closed'] as TicketStatus[]).map((status) => (
+                      <button
+                        key={status}
+                        onClick={() => handleStatusChange(status)}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 capitalize"
+                      >
+                        {status.replace('_', ' ')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                Assign
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -188,7 +277,12 @@ export default function TicketDetails() {
             <h2 className="text-xl font-semibold mb-4">Messages</h2>
             <div className="space-y-6">
               {messages.map((message) => (
-                <div key={message.id} className="border-b pb-4 last:border-b-0">
+                <div 
+                  key={message.id} 
+                  className={`border-b pb-4 last:border-b-0 ${
+                    message.message_type === 'internal' ? 'bg-yellow-50 -mx-6 px-6' : ''
+                  }`}
+                >
                   <div className="flex items-start gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
@@ -198,13 +292,23 @@ export default function TicketDetails() {
                         <span className="text-sm text-gray-500">
                           {format(new Date(message.created_at), 'PPp')}
                         </span>
+                        {message.message_type === 'internal' && (
+                          <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                            Internal Note
+                          </span>
+                        )}
+                        {message.message_type === 'system' && (
+                          <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                            System
+                          </span>
+                        )}
                       </div>
                       <p className="text-gray-700 whitespace-pre-wrap">{message.content}</p>
                       {message.attachments && message.attachments.length > 0 && (
                         <div className="mt-2">
                           <div className="text-sm text-gray-500">Attachments:</div>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            {message.attachments.map((attachment: Database['public']['Tables']['ticket_attachments']['Row']) => (
+                            {message.attachments.map((attachment) => (
                               <a
                                 key={attachment.id}
                                 href={attachment.file_url}
@@ -226,10 +330,36 @@ export default function TicketDetails() {
 
             {/* New Message Form */}
             <div className="mt-6">
+              <div className="flex gap-4 mb-2">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="messageType"
+                    value="public"
+                    checked={messageType === 'public'}
+                    onChange={(e) => setMessageType(e.target.value as MessageType)}
+                    className="mr-2"
+                  />
+                  Public Reply
+                </label>
+                {canUpdateTicket && (
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="messageType"
+                      value="internal"
+                      checked={messageType === 'internal'}
+                      onChange={(e) => setMessageType(e.target.value as MessageType)}
+                      className="mr-2"
+                    />
+                    Internal Note
+                  </label>
+                )}
+              </div>
               <textarea
                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 rows={4}
-                placeholder="Type your message..."
+                placeholder={messageType === 'internal' ? "Add an internal note..." : "Type your message..."}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 disabled={sendingMessage}
@@ -255,7 +385,7 @@ export default function TicketDetails() {
                       Sending...
                     </>
                   ) : (
-                    'Send Message'
+                    messageType === 'internal' ? 'Add Note' : 'Send Message'
                   )}
                 </button>
               </div>
@@ -298,7 +428,7 @@ export default function TicketDetails() {
                 <div>
                   <label className="text-sm text-gray-500">Tags</label>
                   <div className="flex flex-wrap gap-2">
-                    {ticket.tags.map((tag: string, index: number) => (
+                    {ticket.tags.map((tag, index) => (
                       <span
                         key={index}
                         className="px-2 py-1 bg-gray-100 rounded-full text-sm"

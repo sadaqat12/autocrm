@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
 
 interface NewOrganizationModalProps {
   isOpen: boolean;
@@ -37,23 +37,35 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
       const { data: orgData, error: insertError } = await supabase
         .from('organizations')
         .insert([{ name }])
-        .select()
-        .single();
+        .select('id');
 
       if (insertError) throw insertError;
+      if (!orgData?.[0]?.id) throw new Error('Failed to create organization');
 
       // Create the organization_users entry
       const { error: userError } = await supabase
         .from('organization_users')
         .insert([{
-          organization_id: orgData.id,
-          user_email: userData.user.email,
+          organization_id: orgData[0].id,
+          user_id: userData.user.id,
           is_creator: true,
-          status: 'active',
-          role: profileData.role  // Use the role from the user's profile
+          status: 'accepted',
+          role: 'owner'
         }]);
 
       if (userError) throw userError;
+
+      // Now fetch the organization details if needed
+      const { error: selectError } = await supabase
+        .from('organizations')
+        .select('*')
+        .eq('id', orgData[0].id)
+        .single();
+
+      if (selectError) {
+        console.warn('Failed to fetch organization details:', selectError);
+        // Don't throw here, we've already created the org
+      }
 
       setName('');
       onSuccess();
@@ -92,17 +104,15 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                       Organization Name
                     </label>
-                    <div className="mt-1">
-                      <input
-                        type="text"
-                        name="name"
-                        id="name"
-                        required
-                        className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      name="name"
+                      id="name"
+                      required
+                      className="mt-1 block w-full rounded-md border-2 border-gray-300 shadow-sm py-2.5 px-3 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors text-sm"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
                   </div>
                   <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                     <button

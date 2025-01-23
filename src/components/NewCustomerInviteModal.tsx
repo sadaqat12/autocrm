@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 
 interface NewCustomerInviteModalProps {
@@ -11,7 +11,6 @@ interface NewCustomerInviteModalProps {
 
 export default function NewCustomerInviteModal({ isOpen, onClose, onSuccess, organizationId }: NewCustomerInviteModalProps) {
   const { user } = useAuth();
-  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,13 +23,40 @@ export default function NewCustomerInviteModal({ isOpen, onClose, onSuccess, org
     setError('');
 
     try {
-      // First check if the user already exists in organization_users
+      console.log('Current user:', user?.id);
+      console.log('Organization ID:', organizationId);
+
+      // Look up the user's profile by email in metadata
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .contains('metadata', { email: email })
+        .single();
+
+      console.log('Found profile:', profileData);
+      console.log('Profile error:', profileError);
+
+      if (profileError) {
+        if (profileError.code === 'PGRST116') {
+          throw new Error('No user found with this email address. The user must have an account before they can be invited.');
+        }
+        throw profileError;
+      }
+
+      if (!profileData) {
+        throw new Error('No user found with this email address. The user must have an account before they can be invited.');
+      }
+
+      // Now check if the user already exists in organization_users
       const { data: existingUser, error: existingError } = await supabase
         .from('organization_users')
         .select('id')
         .eq('organization_id', organizationId)
-        .eq('user_email', email)
+        .eq('user_id', profileData.id)
         .maybeSingle();
+
+      console.log('Existing user check:', existingUser);
+      console.log('Existing user error:', existingError);
 
       if (existingError) {
         throw existingError;
@@ -40,38 +66,71 @@ export default function NewCustomerInviteModal({ isOpen, onClose, onSuccess, org
         throw new Error('This user has already been invited to the organization');
       }
 
-      // Check if the current user is a creator for this organization
-      const { data: creatorAccess, error: creatorError } = await supabase
-        .from('organization_users')
-        .select('is_creator')
-        .eq('organization_id', organizationId)
-        .eq('user_email', user?.email)
-        .maybeSingle();
+      // First check if the current user is a system admin
+      const { data: adminData, error: adminError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user?.id)
+        .single();
 
-      if (creatorError) {
-        throw creatorError;
+      if (adminError) {
+        throw adminError;
       }
 
-      if (!creatorAccess?.is_creator) {
-        throw new Error('You do not have permission to invite users to this organization. Only creators can invite users.');
+      let hasPermission = adminData?.role === 'admin';
+
+      if (!hasPermission) {
+        // If not admin, check if they're an owner/admin of the organization
+        const { data: userAccess, error: accessError } = await supabase
+          .from('organization_users')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('user_id', user?.id)
+          .eq('status', 'accepted')
+          .in('role', ['owner', 'admin'])
+          .maybeSingle();
+
+        console.log('User access check:', userAccess);
+        console.log('Access error:', accessError);
+
+        if (accessError) {
+          throw accessError;
+        }
+
+        hasPermission = !!userAccess;
+      }
+
+      if (!hasPermission) {
+        throw new Error('You do not have permission to invite users to this organization. Only owners and admins can invite users.');
       }
 
       // Insert the invitation into organization_users table
-      const { error: inviteError } = await supabase
+      console.log('Creating organization_users record with data:', {
+        organization_id: organizationId,
+        user_id: profileData.id,
+        role: 'member',
+        status: 'pending'
+      });
+
+      const { data: inviteData, error: inviteError } = await supabase
         .from('organization_users')
-        .insert({
+        .insert([{
           organization_id: organizationId,
-          user_email: email,
-          role: 'user',
+          user_id: profileData.id,
+          role: 'member',
           status: 'pending',
           is_creator: false
-        });
+        }])
+        .select()
+        .single();
+
+      console.log('Organization user record created:', { inviteData, error: inviteError });
 
       if (inviteError) {
         throw inviteError;
       }
 
-      setFullName('');
+      console.log('Invitation process completed successfully');
       setEmail('');
       onSuccess();
       onClose();
@@ -100,62 +159,49 @@ export default function NewCustomerInviteModal({ isOpen, onClose, onSuccess, org
               </h3>
               <div className="mt-2">
                 <p className="text-sm text-gray-500">
-                  Enter the customer's details. They will receive an invitation email to join your organization.
+                  The customer must already have an account in the app to be invited to your organization.
                 </p>
+                <form onSubmit={handleSubmit} className="mt-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                        Customer Email
+                      </label>
+                      <input
+                        type="email"
+                        name="email"
+                        id="email"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Enter customer's email"
+                      />
+                    </div>
+                    {error && (
+                      <div className="text-sm text-red-600">
+                        {error}
+                      </div>
+                    )}
+                    <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="inline-flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto sm:text-sm"
+                      >
+                        {loading ? 'Sending...' : 'Send Invitation'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="mt-3 inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:mt-0 sm:w-auto sm:text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </form>
               </div>
-              <form onSubmit={handleSubmit} className="mt-5">
-                {error && (
-                  <div className="mb-4 p-2 text-sm text-red-700 bg-red-100 rounded">
-                    {error}
-                  </div>
-                )}
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
-                      Full Name
-                    </label>
-                    <input
-                      type="text"
-                      name="fullName"
-                      id="fullName"
-                      required
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      name="email"
-                      id="email"
-                      required
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:col-start-2 sm:text-sm disabled:opacity-50"
-                  >
-                    {loading ? 'Processing...' : 'Send Invitation'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:col-start-1 sm:text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>

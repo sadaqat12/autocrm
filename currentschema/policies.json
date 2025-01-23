@@ -1,128 +1,212 @@
 [
   {
     "tablename": "agent_organizations",
-    "policyname": "Admins can manage agent organizations",
-    "cmd": "ALL",
+    "policyname": "agent_org_admin_delete",
+    "cmd": "DELETE",
     "roles": "{authenticated}"
   },
   {
     "tablename": "agent_organizations",
-    "policyname": "Agents can view their organizations",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "audit_log",
-    "policyname": "Audit log visible to admins",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "audit_log",
-    "policyname": "Users can view their org audit log",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "organization_users",
-    "policyname": "Allow first organization creation",
+    "policyname": "agent_org_admin_insert",
     "cmd": "INSERT",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "organization_users",
-    "policyname": "Allow organization admins to manage users",
-    "cmd": "INSERT",
+    "tablename": "agent_organizations",
+    "policyname": "agent_org_admin_select",
+    "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "organization_users",
-    "policyname": "Allow organization admins to update/delete users",
+    "tablename": "agent_organizations",
+    "policyname": "agent_org_admin_update",
     "cmd": "UPDATE",
-    "roles": "{public}"
+    "roles": "{authenticated}"
   },
   {
-    "tablename": "organization_users",
-    "policyname": "Users can view their organization memberships",
+    "tablename": "agent_organizations",
+    "policyname": "agent_org_agent_select",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
+    "policyname": "audit_log_admin_select",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
+    "policyname": "audit_log_org_select",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "organization_users",
-    "policyname": "Users can view their own access",
-    "cmd": "SELECT",
+    "policyname": "admin_full_access",
+    "cmd": "ALL",
     "roles": "{authenticated}"
   },
   {
     "tablename": "organization_users",
-    "policyname": "Users can view their own organization access",
+    "policyname": "org_admin_manage",
+    "cmd": "ALL",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organization_users",
+    "policyname": "user_accept_own_invite",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organization_users",
+    "policyname": "user_view_own",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "organizations",
-    "policyname": "allow_all_organizations",
-    "cmd": "ALL",
+    "policyname": "org_admin_delete",
+    "cmd": "DELETE",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "profiles",
-    "policyname": "Anyone can create their own profile",
+    "tablename": "organizations",
+    "policyname": "org_admin_select",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organizations",
+    "policyname": "org_admin_update",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organizations",
+    "policyname": "org_anyone_insert",
     "cmd": "INSERT",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "profiles",
-    "policyname": "Users can update their own profile",
+    "tablename": "organizations",
+    "policyname": "org_owner_admin_delete",
+    "cmd": "DELETE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organizations",
+    "policyname": "org_owner_admin_select",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organizations",
+    "policyname": "org_owner_admin_update",
     "cmd": "UPDATE",
     "roles": "{authenticated}"
   },
   {
     "tablename": "profiles",
-    "policyname": "Users can view all profiles",
+    "policyname": "profiles_create_self",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "profiles",
+    "policyname": "profiles_delete_access",
+    "cmd": "DELETE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "profiles",
+    "policyname": "profiles_insert_access",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "profiles",
+    "policyname": "profiles_select_policy",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "profiles",
+    "policyname": "profiles_update_access",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "ticket_attachments",
+    "policyname": "ticket_attachments_delete",
+    "cmd": "DELETE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "ticket_attachments",
+    "policyname": "ticket_attachments_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "ticket_attachments",
+    "policyname": "ticket_attachments_select",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "ticket_attachments",
-    "policyname": "Admins can view all attachments",
-    "cmd": "ALL",
+    "policyname": "ticket_attachments_update",
+    "cmd": "UPDATE",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "ticket_attachments",
-    "policyname": "Organization members can view their ticket attachments",
+    "tablename": "ticket_messages",
+    "policyname": "ticket_messages_delete",
+    "cmd": "DELETE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "ticket_messages",
+    "policyname": "ticket_messages_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "ticket_messages",
+    "policyname": "ticket_messages_select",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "ticket_messages",
-    "policyname": "Admins can view all messages",
-    "cmd": "ALL",
+    "policyname": "ticket_messages_update",
+    "cmd": "UPDATE",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "ticket_messages",
-    "policyname": "Organization members can view their ticket messages",
-    "cmd": "SELECT",
+    "tablename": "tickets",
+    "policyname": "tickets_delete",
+    "cmd": "DELETE",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "ticket_messages",
-    "policyname": "Users can create messages on accessible tickets",
+    "tablename": "tickets",
+    "policyname": "tickets_insert",
     "cmd": "INSERT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "tickets",
-    "policyname": "Users can create tickets",
-    "cmd": "INSERT",
+    "policyname": "tickets_select",
+    "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "tickets",
-    "policyname": "Users can view their org tickets",
-    "cmd": "SELECT",
+    "policyname": "tickets_update",
+    "cmd": "UPDATE",
     "roles": "{authenticated}"
   }
 ]

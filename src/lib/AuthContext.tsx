@@ -23,7 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        handleUserSession(session.user);
       } else {
         setLoading(false);
       }
@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        handleUserSession(session.user);
       } else {
         setProfile(null);
         setLoading(false);
@@ -42,30 +42,92 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchProfile(userId: string) {
+  const handleUserSession = async (user: User) => {
     try {
-      const { data, error } = await supabase
+      // First try to fetch existing profile
+      const { data: existingProfile, error: fetchError } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq('id', user.id)
         .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No profile found - user needs to complete profile setup from dashboard
-          console.log('No profile found for user');
-        } else {
-          console.error('Error fetching profile:', error);
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching profile:', fetchError);
+        throw fetchError;
+      }
+
+      if (existingProfile) {
+        console.log('Found existing profile');
+        setProfile(existingProfile);
+        setLoading(false);
+        return;
+      }
+
+      // No profile exists, create one
+      console.log('No profile found, creating new profile for user:', user.id);
+      
+      // Try direct insert first (now that we have the proper RLS policy)
+      const { data: insertData, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          full_name: user.user_metadata.full_name || '',
+          phone: user.user_metadata.phone || '',
+          role: 'user',
+          metadata: {
+            email: user.email,
+            email_verified: user.user_metadata?.email_verified || false
+          }
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Profile creation failed:', insertError);
+        // If direct insert fails, try the RPC method as fallback
+        console.log('Direct insert failed, trying RPC method');
+        const { error: rpcError } = await supabase.rpc('create_profile', {
+          user_id: user.id,
+          user_full_name: user.user_metadata.full_name || '',
+          user_phone: user.user_metadata.phone || '',
+          user_metadata: {
+            email: user.email,
+            email_verified: user.user_metadata?.email_verified || false
+          }
+        });
+
+        if (rpcError) {
+          console.error('RPC profile creation failed:', rpcError);
+          throw rpcError;
         }
+
+        // After RPC call, fetch the newly created profile
+        const { data: newProfile, error: refetchError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (refetchError) {
+          console.error('Error fetching new profile:', refetchError);
+          throw refetchError;
+        }
+
+        console.log('Profile created successfully via RPC');
+        setProfile(newProfile);
       } else {
-        setProfile(data);
+        console.log('Profile created successfully via direct insert');
+        setProfile(insertData);
       }
     } catch (error) {
-      console.error('Error in fetchProfile:', error);
+      console.error('Error in handleUserSession:', error);
+      // Sign out the user if there's an error
+      await supabase.auth.signOut();
+      throw new Error('Failed to create user profile. Please try logging in again.');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -88,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data: {
           full_name: fullName,
           phone: phone,
-          pending_profile: true
+          email: email
         }
       }
     });

@@ -12,155 +12,92 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import AcceptInvite from './pages/AcceptInvite';
 import { supabase } from './lib/supabase';
+import { Organization } from './lib/types';
 
 // Auth callback handler
 function AuthCallback() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const location = useLocation();
+  const [isProcessing, setIsProcessing] = useState(true);
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Log all URL information for debugging
-        console.log('Full URL:', window.location.href);
-        console.log('Search params:', Object.fromEntries(searchParams.entries()));
-        console.log('Location state:', location);
-        console.log('Hash:', window.location.hash);
+        // Get the hash from the URL
+        const hash = location.hash;
+        console.log('Processing auth callback with hash:', hash);
 
-        // First try to get the token from the hash fragment
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const hashToken = hashParams.get('access_token');
+        if (!hash) {
+          throw new Error('No valid authentication parameters found in URL');
+        }
 
-        if (hashToken) {
-          // Handle access token from hash
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (error) throw error;
+        // Parse the hash parameters
+        const hashParams = new URLSearchParams(hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const type = hashParams.get('type');
 
-          if (session?.user?.user_metadata?.pending_profile) {
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .insert([
-                {
-                  id: session.user.id,
-                  full_name: session.user.user_metadata.full_name,
-                  phone: session.user.user_metadata.phone,
-                  role: 'user'
-                }
-              ]);
-            
-            if (profileError) {
-              console.error('Error creating profile:', profileError);
-              throw new Error('Failed to create user profile');
-            }
-          }
+        console.log('Auth type:', type);
 
+        if (!accessToken) {
+          throw new Error('No access token found in URL');
+        }
+
+        // For signup flow, just redirect to login
+        if (type === 'signup') {
+          console.log('Email confirmed, redirecting to login');
+          // Clear any existing session
+          await supabase.auth.signOut();
           navigate('/login', {
             state: {
               message: 'Email confirmed successfully. Please sign in to continue.'
             }
           });
-          return;
-        }
-
-        // Check for email confirmation token in query params
-        const token = searchParams.get('token_hash') || searchParams.get('token') || searchParams.get('confirmation_token');
-        if (token) {
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: token,
-            type: 'email'
-          });
-          if (error) throw error;
-
-          // After email verification, get the session
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-          if (sessionError) throw sessionError;
-
-          // Check if we need to create a profile
-          if (session?.user?.user_metadata?.pending_profile) {
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .insert([
-                {
-                  id: session.user.id,
-                  full_name: session.user.user_metadata.full_name,
-                  phone: session.user.user_metadata.phone,
-                  role: 'user'
-                }
-              ]);
-            
-            if (profileError) {
-              console.error('Error creating profile:', profileError);
-              throw new Error('Failed to create user profile');
-            }
-          }
-
+        } else if (type === 'recovery') {
+          console.log('Password reset successful');
+          // Clear any existing session
+          await supabase.auth.signOut();
           navigate('/login', {
             state: {
-              message: 'Email confirmed successfully. Please sign in to continue.'
+              message: 'Password reset successful. Please sign in with your new password.'
             }
           });
-          return;
+        } else {
+          console.log('Unknown callback type, redirecting to login');
+          // Clear any existing session
+          await supabase.auth.signOut();
+          navigate('/login');
         }
-
-        // Check for OAuth code flow
-        const code = searchParams.get('code') || searchParams.get('refresh_token');
-        if (code) {
-          const { data: { session }, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
-          if (sessionError) throw sessionError;
-
-          // Check if we need to create a profile
-          if (session?.user?.user_metadata?.pending_profile) {
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .insert([
-                {
-                  id: session.user.id,
-                  full_name: session.user.user_metadata.full_name,
-                  phone: session.user.user_metadata.phone,
-                  role: 'user'
-                }
-              ]);
-            
-            if (profileError) {
-              console.error('Error creating profile:', profileError);
-              throw new Error('Failed to create user profile');
-            }
-          }
-
-          navigate('/login', {
-            state: {
-              message: 'Email confirmed successfully. Please sign in to continue.'
-            }
-          });
-          return;
-        }
-
-        throw new Error('No valid authentication parameters found in URL');
       } catch (err) {
-        console.error('Error in auth callback:', err);
+        console.error('Auth callback error:', err);
         navigate('/login', {
           state: {
-            error: 'Failed to verify email. Please try again or contact support.'
+            error: err instanceof Error ? err.message : 'Authentication failed. Please try again.'
           }
         });
+      } finally {
+        setIsProcessing(false);
       }
     };
 
     handleCallback();
-  }, [searchParams, navigate, location]);
+  }, [navigate, location]);
 
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-    </div>
-  );
+  if (isProcessing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // Wrapper for OrganizationDetails to handle params
 function OrganizationDetailsWrapper() {
   const { id } = useParams();
-  const [organization, setOrganization] = useState<{ id: string; name: string } | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -170,7 +107,7 @@ function OrganizationDetailsWrapper() {
       try {
         const { data, error } = await supabase
           .from('organizations')
-          .select('id, name')
+          .select('id, name, created_at')
           .eq('id', id)
           .single();
 

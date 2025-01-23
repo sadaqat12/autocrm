@@ -1,46 +1,66 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 
 export default function AcceptInvite() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { profile } = useAuth();
 
   useEffect(() => {
     const handleInvite = async () => {
       try {
-        // Get the invite token from the URL
-        const token = searchParams.get('token');
-        if (!token) {
-          throw new Error('Invalid invitation link');
+        console.log('Starting invitation acceptance process');
+        console.log('Current profile:', profile);
+        
+        const invitationId = searchParams.get('invitation_id');
+        console.log('Invitation ID from URL:', invitationId);
+        
+        if (!invitationId) {
+          throw new Error('Invalid invitation - missing invitation ID');
         }
 
-        // Let Supabase handle the invitation
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: token,
-          type: 'invite'
-        });
+        if (!profile?.id) {
+          console.log('No profile found, redirecting to login');
+          navigate('/login', { 
+            state: { 
+              message: 'Please log in to accept the invitation.' 
+            } 
+          });
+          return;
+        }
 
-        if (error) throw error;
+        // Verify and update the invitation
+        const { data: updateData, error: updateError } = await supabase
+          .from('organization_users')
+          .update({ status: 'accepted' })
+          .eq('id', invitationId)
+          .eq('user_id', profile.id)
+          .eq('status', 'pending')
+          .select()
+          .single();
 
-        // Redirect to login with success message
-        navigate('/login', { 
-          state: { 
-            message: 'Invitation accepted successfully. Please log in to continue.' 
-          } 
-        });
+        console.log('Update result:', { updateData, error: updateError });
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        // Redirect to dashboard
+        navigate('/dashboard');
       } catch (err: any) {
         console.error('Error accepting invitation:', err);
-        navigate('/login', { 
+        navigate('/dashboard', { 
           state: { 
-            error: err.message || 'Failed to accept invitation. Please contact support.' 
+            error: err.message || 'Failed to accept invitation. Please try again.' 
           } 
         });
       }
     };
 
     handleInvite();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, profile?.id]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
