@@ -13,6 +13,8 @@ import { useNavigate, useParams, useSearchParams, useLocation } from 'react-rout
 import AcceptInvite from './pages/AcceptInvite';
 import { supabase } from './lib/supabase';
 import { Organization } from './lib/types';
+import AddAgent from './pages/AddAgent';
+import AssignAgents from './pages/AssignAgents';
 
 // Auth callback handler
 function AuthCallback() {
@@ -166,6 +168,24 @@ function AuthenticatedRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
       
+      <Route
+        path="/add-agent"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AddAgent />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/assign-agents/:orgId"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AssignAgents />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/dashboard"
         element={
