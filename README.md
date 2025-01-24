@@ -45,7 +45,7 @@ A modern, full-stack customer support and ticket management system built with Re
 
 1. **Clone the repository**
    ```bash
-   git clone [repository-url]
+   git clone https://github.com/sadaqat12/autocrm
    cd autocrm
    ```
 
@@ -117,7 +117,7 @@ Key tables:
 4. Push to the branch
 5. Open a Pull Request
 
-## License
+
 
 MIT License
 
