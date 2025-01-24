@@ -3,11 +3,7 @@ import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import OrganizationList from './OrganizationList';
 import NewOrganizationModal from './NewOrganizationModal';
-
-interface Organization {
-  id: string;
-  name: string;
-}
+import { Organization } from '../lib/types';
 
 interface Invitation {
   id: string;

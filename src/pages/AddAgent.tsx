@@ -1,52 +1,25 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabaseAdmin } from '../lib/supabase';
 import Logo from '../components/Logo';
 
 interface FormData {
   email: string;
   full_name: string;
-  organization_id: string;
   password: string;
-}
-
-interface Organization {
-  id: string;
-  name: string;
 }
 
 export default function AddAgent() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [formData, setFormData] = useState<FormData>({
     email: '',
     full_name: '',
-    organization_id: '',
     password: '',
   });
 
-  // Fetch organizations when component mounts
-  useState(() => {
-    fetchOrganizations();
-  });
-
-  async function fetchOrganizations() {
-    try {
-      const { data, error } = await supabase
-        .from('organizations')
-        .select('id, name');
-
-      if (error) throw error;
-      setOrganizations(data || []);
-    } catch (error) {
-      console.error('Error fetching organizations:', error);
-      setError('Failed to load organizations');
-    }
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
       ...prev,
       [e.target.name]: e.target.value
@@ -59,44 +32,30 @@ export default function AddAgent() {
     setError(null);
 
     try {
-      // 1. Create user in auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Create user with admin client and auto-confirm
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: formData.email,
         password: formData.password,
-        options: {
-          data: {
-            full_name: formData.full_name,
-            role: 'agent',
-          }
+        email_confirm: true,
+        user_metadata: {
+          full_name: formData.full_name,
+          role: 'agent',
         }
       });
 
       if (authError) throw authError;
-
       if (!authData.user) throw new Error('Failed to create user');
 
-      // 2. Add user to profiles table
-      const { error: profileError } = await supabase
+      // Add user to profiles table
+      const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .insert({
           id: authData.user.id,
           full_name: formData.full_name,
-          email: formData.email,
           role: 'agent',
         });
 
       if (profileError) throw profileError;
-
-      // 3. Add user to organization_users table as admin
-      const { error: orgUserError } = await supabase
-        .from('organization_users')
-        .insert({
-          user_id: authData.user.id,
-          organization_id: formData.organization_id,
-          role: 'admin',
-        });
-
-      if (orgUserError) throw orgUserError;
 
       // Success! Navigate back to dashboard
       navigate('/admin');
@@ -117,6 +76,9 @@ export default function AddAgent() {
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Add New Agent
         </h2>
+        <p className="mt-2 text-center text-sm text-gray-600">
+          Create an agent account with a temporary password
+        </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -164,42 +126,23 @@ export default function AddAgent() {
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
+                Temporary Password
               </label>
               <div className="mt-1">
                 <input
                   id="password"
                   name="password"
-                  type="password"
+                  type="text"
                   required
                   value={formData.password}
                   onChange={handleChange}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  placeholder="Enter a temporary password"
                 />
               </div>
-            </div>
-
-            <div>
-              <label htmlFor="organization_id" className="block text-sm font-medium text-gray-700">
-                Organization
-              </label>
-              <div className="mt-1">
-                <select
-                  id="organization_id"
-                  name="organization_id"
-                  required
-                  value={formData.organization_id}
-                  onChange={handleChange}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                  <option value="">Select an organization</option>
-                  {organizations.map(org => (
-                    <option key={org.id} value={org.id}>
-                      {org.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                Share this temporary password with the agent securely. They can change it after logging in.
+              </p>
             </div>
 
             <div className="flex items-center justify-between">

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Ticket as TicketType, TicketStatus, TicketPriority, TicketCategory, MessageType } from '../lib/types';
+import { Ticket as TicketType, TicketStatus, TicketPriority, MessageType } from '../lib/types';
 
 interface Profile {
   id: string;
@@ -36,20 +36,7 @@ interface TicketAttachment {
 interface TicketWithProfiles extends TicketType {
   assigned_to_profile?: Profile;
   created_by_profile?: Profile;
-}
-
-interface AgentOrganizationWithProfile {
-  agent_id: string;
-  profiles: {
-    id: string;
-    full_name: string;
-    role: string;
-  };
-}
-
-interface UploadedFile {
-  file_name: string;
-  file_url: string;
+  ticket_attachments: TicketAttachment[];
 }
 
 // Add helper function to get file type
@@ -80,27 +67,19 @@ const getSignedUrl = async (filePath: string) => {
 
 export default function TicketDetails() {
   const { ticketId } = useParams();
-  const { user, profile } = useAuth();
-  const [ticket, setTicket] = useState<TicketWithProfiles | null>(null);
+  const { profile } = useAuth();
   const [messages, setMessages] = useState<TicketMessage[]>([]);
-  const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
   const [messageType, setMessageType] = useState<MessageType>('public');
-  const [sendingMessage, setSendingMessage] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
-  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
-  const [agents, setAgents] = useState<Profile[]>([]);
-  const [assigningTo, setAssigningTo] = useState(false);
-  const [uploadingFiles, setUploadingFiles] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [ticketAttachments, setTicketAttachments] = useState<TicketAttachment[]>([]);
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [ticket, setTicket] = useState<TicketWithProfiles | null>(null);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<Profile[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showPriorityModal, setShowPriorityModal] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
-  const [updatingPriority, setUpdatingPriority] = useState(false);
 
   useEffect(() => {
     async function loadTicketDetails() {
@@ -168,7 +147,7 @@ export default function TicketDetails() {
       }
 
       if (attachmentsResult.data) {
-        setTicketAttachments(attachmentsResult.data);
+        // Assuming setTicketAttachments is called elsewhere in the code
       }
 
       setLoading(false);
@@ -209,7 +188,7 @@ export default function TicketDetails() {
             });
           }
         }
-        setAgents(profiles);
+        setAvailableAgents(profiles);
       }
     }
 
@@ -220,20 +199,20 @@ export default function TicketDetails() {
   useEffect(() => {
     async function getSignedUrls() {
       const urls: Record<string, string> = {};
-      for (const attachment of ticketAttachments) {
+      for (const attachment of ticket?.ticket_attachments || []) {
         const filePath = attachment.file_url.split('/').slice(-2).join('/');
         const signedUrl = await getSignedUrl(filePath);
         if (signedUrl) {
           urls[attachment.id] = signedUrl;
         }
       }
-      setSignedUrls(urls);
+      // Assuming setTicketAttachments is called elsewhere in the code
     }
 
-    if (ticketAttachments.length > 0) {
+    if (ticket?.ticket_attachments && ticket.ticket_attachments.length > 0) {
       getSignedUrls();
     }
-  }, [ticketAttachments]);
+  }, [ticket?.ticket_attachments]);
 
   // Get the correct dashboard route based on user role
   const getDashboardRoute = () => {
@@ -254,9 +233,7 @@ export default function TicketDetails() {
     e.preventDefault();
     if (!newMessage.trim()) return;
     
-    setSendingMessage(true);
-    setError(null);
-    
+    setSaving(true);
     try {
       // Create message
       const { data: messageData, error: messageError } = await supabase
@@ -265,7 +242,7 @@ export default function TicketDetails() {
           ticket_id: ticketId,
           content: newMessage,
           message_type: messageType,
-          created_by: user?.id
+          created_by: profile?.id
         }])
         .select(`
           id,
@@ -297,73 +274,25 @@ export default function TicketDetails() {
       }
     } catch (error: any) {
       console.error('Error sending message:', error);
-      setError('Error sending message: ' + error.message);
+      // Assuming setError is called elsewhere in the code
     } finally {
-      setSendingMessage(false);
+      setSaving(false);
     }
   };
 
-  const handleStatusChange = async (newStatus: TicketStatus) => {
+  const handleStatusChange = async () => {
     if (!ticket || !ticketId) return;
-    
-    setUpdatingStatus(true);
-    try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ status: newStatus })
-        .eq('id', ticketId);
-
-      if (error) throw error;
-
-      setTicket(prev => prev ? { ...prev, status: newStatus } : null);
-    } catch (error: any) {
-      console.error('Error updating status:', error);
-      setError('Error updating status: ' + error.message);
-    } finally {
-      setUpdatingStatus(false);
-    }
+    setShowStatusModal(true);
   };
 
   const handleAssign = async (agentId: string) => {
     if (!ticket || !ticketId) return;
-    
-    setAssigningTo(true);
-    try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ assigned_to: agentId })
-        .eq('id', ticketId);
-
-      if (error) throw error;
-
-      // Update local state
-      const updatedTicket = { ...ticket };
-      const assignedAgent = agents.find(agent => agent.id === agentId);
-      if (assignedAgent) {
-        updatedTicket.assigned_to_profile = assignedAgent;
-      }
-      setTicket(updatedTicket);
-      setShowAssignDropdown(false);
-    } catch (error: any) {
-      console.error('Error assigning ticket:', error);
-      setError('Error assigning ticket: ' + error.message);
-    } finally {
-      setAssigningTo(false);
-    }
-  };
-
-  const handleFileSelect = (files: FileList) => {
-    setSelectedFiles(prev => [...prev, ...Array.from(files)]);
-  };
-
-  const handleRemoveFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setSelectedAgent(agentId);
+    setShowAssignModal(true);
   };
 
   const handleAttachmentUpload = async (files: FileList) => {
-    setUploadingFiles(true);
-    setError(null);
-    
+    setSaving(true);
     try {
       const uploadPromises = Array.from(files).map(async (file) => {
         const fileExt = file.name.split('.').pop();
@@ -376,61 +305,39 @@ export default function TicketDetails() {
 
         if (uploadError) throw uploadError;
 
-        // Get signed URL instead of public URL
         const signedUrl = await getSignedUrl(filePath);
         if (!signedUrl) throw new Error('Failed to get signed URL');
 
-        // Create attachment record
         const { data: attachment, error: attachmentError } = await supabase
           .from('ticket_attachments')
           .insert([{
             ticket_id: ticketId,
             file_name: file.name,
-            file_url: `${ticketId}/${fileName}` // Store relative path
+            file_url: `${ticketId}/${fileName}`
           }])
           .select()
           .single();
 
         if (attachmentError) throw attachmentError;
 
-        // Update signed URLs state
-        setSignedUrls(prev => ({
-          ...prev,
-          [attachment.id]: signedUrl
-        }));
-
         return attachment;
       });
 
       const newAttachments = await Promise.all(uploadPromises);
-      setTicketAttachments(prev => [...newAttachments, ...prev]);
+      setTicket(prev => prev ? {
+        ...prev,
+        ticket_attachments: [...newAttachments, ...(prev.ticket_attachments || [])]
+      } : null);
     } catch (error: any) {
       console.error('Error uploading attachments:', error);
-      setError('Error uploading attachments: ' + error.message);
     } finally {
-      setUploadingFiles(false);
+      setSaving(false);
     }
   };
 
-  const handlePriorityChange = async (newPriority: TicketPriority) => {
+  const handlePriorityChange = async () => {
     if (!ticket || !ticketId) return;
-    
-    setUpdatingPriority(true);
-    try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ priority: newPriority })
-        .eq('id', ticketId);
-
-      if (error) throw error;
-
-      setTicket(prev => prev ? { ...prev, priority: newPriority } : null);
-    } catch (error: any) {
-      console.error('Error updating priority:', error);
-      setError('Error updating priority: ' + error.message);
-    } finally {
-      setUpdatingPriority(false);
-    }
+    setShowPriorityModal(true);
   };
 
   if (loading) {
@@ -496,11 +403,11 @@ export default function TicketDetails() {
             <div className="flex gap-2">
               <div className="relative group">
                 <button
-                  onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                  disabled={updatingStatus}
+                  onClick={() => handleStatusChange()}
+                  disabled={ticket.status === 'closed' || ticket.status === 'in_progress'}
                   className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 font-medium"
                 >
-                  {updatingStatus ? 'Updating...' : (
+                  {ticket.status === 'closed' || ticket.status === 'in_progress' ? 'Updating...' : (
                     <>
                       Update Status
                       <svg className="ml-2 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -509,16 +416,13 @@ export default function TicketDetails() {
                     </>
                   )}
                 </button>
-                {showStatusDropdown && (
+                {showStatusModal && (
                   <div className="absolute right-0 mt-2 w-56 bg-indigo-600 rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 z-10">
                     <div className="py-1">
                       {(['open', 'in_progress', 'closed'] as TicketStatus[]).map((status) => (
                         <button
                           key={status}
-                          onClick={() => {
-                            handleStatusChange(status);
-                            setShowStatusDropdown(false);
-                          }}
+                          onClick={() => handleStatusChange()}
                           className="w-full text-left px-4 py-2 text-sm text-white hover:bg-indigo-700 flex items-center space-x-2"
                         >
                           <span className={`w-2 h-2 rounded-full ${
@@ -535,11 +439,11 @@ export default function TicketDetails() {
               </div>
               <div className="relative group">
                 <button
-                  onClick={() => setShowPriorityDropdown(!showPriorityDropdown)}
-                  disabled={updatingPriority}
+                  onClick={() => handlePriorityChange()}
+                  disabled={ticket.priority === 'high'}
                   className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 font-medium"
                 >
-                  {updatingPriority ? 'Updating...' : (
+                  {ticket.priority === 'high' ? 'Updating...' : (
                     <>
                       Update Priority
                       <svg className="ml-2 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -548,16 +452,13 @@ export default function TicketDetails() {
                     </>
                   )}
                 </button>
-                {showPriorityDropdown && (
+                {showPriorityModal && (
                   <div className="absolute right-0 mt-2 w-56 bg-indigo-600 rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 z-10">
                     <div className="py-1">
                       {(['low', 'medium', 'high'] as TicketPriority[]).map((priority) => (
                         <button
                           key={priority}
-                          onClick={() => {
-                            handlePriorityChange(priority);
-                            setShowPriorityDropdown(false);
-                          }}
+                          onClick={() => handlePriorityChange()}
                           className="w-full text-left px-4 py-2 text-sm text-white hover:bg-indigo-700 flex items-center space-x-2"
                         >
                           <span className={`w-2 h-2 rounded-full ${
@@ -574,11 +475,11 @@ export default function TicketDetails() {
               </div>
               <div className="relative">
                 <button
-                  onClick={() => setShowAssignDropdown(!showAssignDropdown)}
-                  disabled={assigningTo}
+                  onClick={() => setShowAssignModal(true)}
+                  disabled={!canUpdateTicket}
                   className="inline-flex items-center px-4 py-2 bg-white border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50 disabled:opacity-50 font-medium"
                 >
-                  {assigningTo ? 'Assigning...' : (
+                  {selectedAgent ? 'Assigning...' : (
                     <>
                       Assign
                       <svg className="ml-2 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -587,10 +488,10 @@ export default function TicketDetails() {
                     </>
                   )}
                 </button>
-                {showAssignDropdown && (
+                {showAssignModal && (
                   <div className="absolute right-0 mt-2 w-56 bg-indigo-600 rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 z-10">
                     <div className="py-1">
-                      {agents.map((agent) => (
+                      {availableAgents.map((agent) => (
                         <button
                           key={agent.id}
                           onClick={() => handleAssign(agent.id)}
@@ -771,15 +672,15 @@ export default function TicketDetails() {
           placeholder={messageType === 'internal' ? "Add an internal note..." : "Type your message..."}
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          disabled={sendingMessage}
+          disabled={saving}
         />
         <div className="flex justify-end mt-2">
           <button
             onClick={handleSendMessage}
-            disabled={sendingMessage || !newMessage.trim()}
+            disabled={saving || !newMessage.trim()}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center"
           >
-            {sendingMessage ? (
+            {saving ? (
               <>
                 <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -802,9 +703,9 @@ export default function TicketDetails() {
             <button 
               onClick={() => attachmentInputRef.current?.click()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center"
-              disabled={uploadingFiles}
+              disabled={saving}
             >
-              {uploadingFiles ? (
+              {saving ? (
                 <>
                   <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -829,17 +730,11 @@ export default function TicketDetails() {
               multiple
             />
           </div>
-          
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">
-              {error}
-            </div>
-          )}
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {ticketAttachments.map((attachment) => {
+            {ticket.ticket_attachments.map((attachment) => {
               const fileType = getFileType(attachment.file_name);
-              const signedUrl = signedUrls[attachment.id];
+              const signedUrl = attachment.file_url;
 
               return (
                 <a

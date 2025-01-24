@@ -4,8 +4,9 @@ DROP POLICY IF EXISTS ticket_attachments_insert ON ticket_attachments;
 DROP POLICY IF EXISTS ticket_attachments_update ON ticket_attachments;
 DROP POLICY IF EXISTS ticket_attachments_delete ON ticket_attachments;
 
--- Enable RLS on ticket_attachments table
+-- Enable RLS on tables
 ALTER TABLE ticket_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
 
 -- Policy for selecting ticket attachments
 CREATE POLICY ticket_attachments_select ON ticket_attachments

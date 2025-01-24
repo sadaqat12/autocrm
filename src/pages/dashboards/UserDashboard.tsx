@@ -3,18 +3,11 @@ import DashboardLayout from '../../components/DashboardLayout';
 import OrganizationDetails from '../OrganizationDetails';
 import { Organization } from '../../lib/types';
 
-interface UserDashboardProps {
-  onSelectOrg?: (org: Organization) => void;
-}
-
-export default function UserDashboard({ onSelectOrg }: UserDashboardProps) {
+export default function UserDashboard() {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
 
   const handleSelectOrg = (org: Organization) => {
     setSelectedOrg(org);
-    if (onSelectOrg) {
-      onSelectOrg(org);
-    }
   };
 
   return (

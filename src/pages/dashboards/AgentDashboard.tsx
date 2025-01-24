@@ -3,11 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Logo from '../../components/Logo';
 import { useAuth } from '../../lib/AuthContext';
-
-interface Organization {
-  id: string;
-  name: string;
-}
+import { Organization } from '../../lib/types';
 
 interface Customer {
   id: string;
@@ -21,19 +17,9 @@ interface TicketResponse {
   priority: 'low' | 'medium' | 'high';
   created_at: string;
   updated_at: string;
+  first_response_at: string | null;
   created_by: string;
   customer: Customer;
-  organization: Organization;
-}
-
-interface SupabaseTicket {
-  id: string;
-  subject: string;
-  status: 'open' | 'in_progress' | 'closed';
-  priority: 'low' | 'medium' | 'high';
-  created_at: string;
-  updated_at: string;
-  created_by: string;
   organization: Organization;
 }
 
@@ -55,7 +41,6 @@ export default function AgentDashboard() {
   const [availableTickets, setAvailableTickets] = useState<TicketResponse[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'open' | 'in_progress' | 'closed'>('all');
   const [selectedPriority, setSelectedPriority] = useState<'all' | 'high' | 'medium' | 'low'>('all');
-  const [error, setError] = useState<Error | null>(null);
   const [viewMode, setViewMode] = useState<'assigned' | 'available'>('assigned');
   const [saving, setSaving] = useState(false);
 
@@ -87,6 +72,7 @@ export default function AgentDashboard() {
           priority,
           created_at,
           updated_at,
+          first_response_at,
           created_by,
           organization:organizations!inner(*)
         `)
@@ -105,6 +91,7 @@ export default function AgentDashboard() {
           priority,
           created_at,
           updated_at,
+          first_response_at,
           created_by,
           organization:organizations!inner(*)
         `)
@@ -133,6 +120,7 @@ export default function AgentDashboard() {
         priority: ticket.priority,
         created_at: ticket.created_at,
         updated_at: ticket.updated_at,
+        first_response_at: ticket.first_response_at,
         created_by: ticket.created_by,
         customer: customersData?.find(c => c.id === ticket.created_by) || {
           id: ticket.created_by,
@@ -152,6 +140,7 @@ export default function AgentDashboard() {
         priority: ticket.priority,
         created_at: ticket.created_at,
         updated_at: ticket.updated_at,
+        first_response_at: ticket.first_response_at,
         created_by: ticket.created_by,
         customer: customersData?.find(c => c.id === ticket.created_by) || {
           id: ticket.created_by,
@@ -170,13 +159,21 @@ export default function AgentDashboard() {
       const totalTickets = processedAssignedTickets.length;
       const openTickets = processedAssignedTickets.filter(t => t.status === 'open').length;
       const closedTickets = processedAssignedTickets.filter(t => t.status === 'closed').length;
-      const inProgressTickets = processedAssignedTickets.filter(t => t.status === 'in_progress').length;
+
+      // Calculate average response time
+      const ticketsWithResponse = processedAssignedTickets.filter(t => t.first_response_at !== null);
+      const avgResponseTime = ticketsWithResponse.length
+        ? ticketsWithResponse.reduce((sum, t) => {
+            const responseTime = new Date(t.first_response_at!).getTime() - new Date(t.created_at).getTime();
+            return sum + responseTime;
+          }, 0) / ticketsWithResponse.length / (1000 * 60 * 60) // Convert to hours
+        : 0;
 
       setStats({
         total_tickets: totalTickets,
         open_tickets: openTickets,
         closed_tickets: closedTickets,
-        avg_response_time: 0,
+        avg_response_time: Math.round(avgResponseTime * 10) / 10, // Round to 1 decimal place
         avg_resolution_time: 0,
         satisfaction_rate: 0
       });
@@ -184,7 +181,6 @@ export default function AgentDashboard() {
       setLoading(false);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      setError(error as Error);
       setLoading(false);
     }
   }
@@ -221,7 +217,6 @@ export default function AgentDashboard() {
       await fetchDashboardData();
     } catch (error) {
       console.error('Error accepting ticket:', error);
-      setError(error as Error);
     } finally {
       setSaving(false);
     }

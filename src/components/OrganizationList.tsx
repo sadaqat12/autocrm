@@ -41,7 +41,8 @@ export default function OrganizationList({ onNewOrganization, onSelectOrganizati
       const { data: memberOrgs, error: memberError } = await supabase
         .from('organization_users')
         .select('organization_id')
-        .eq('user_id', userData.user.id);
+        .eq('user_id', userData.user.id)
+        .eq('status', 'accepted');
 
       if (memberError) throw memberError;
 

@@ -9,7 +9,7 @@ import OrganizationDetails from './pages/OrganizationDetails';
 import TicketDetails from './pages/TicketDetails';
 import { useAuth } from './lib/AuthContext';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AcceptInvite from './pages/AcceptInvite';
 import { supabase } from './lib/supabase';
 import { Organization } from './lib/types';
@@ -36,7 +36,6 @@ function AuthCallback() {
         // Parse the hash parameters
         const hashParams = new URLSearchParams(hash.substring(1));
         const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
         const type = hashParams.get('type');
 
         console.log('Auth type:', type);

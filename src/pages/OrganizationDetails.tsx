@@ -25,17 +25,6 @@ interface Customer {
   total_tickets: number;
 }
 
-interface CustomerProfile {
-  id: string;
-  full_name: string;
-  created_at: string;
-}
-
-interface CustomerData {
-  user_id: string;
-  profiles: CustomerProfile;
-}
-
 interface TicketCreator {
   id: string;
   full_name: string;
@@ -53,30 +42,6 @@ interface Ticket {
   created_by: TicketCreator;
 }
 
-interface SupabaseTicketResponse {
-  id: string;
-  organization_id: string;
-  subject: string;
-  status: string;
-  priority: string;
-  category: string;
-  created_at: string;
-  updated_at: string;
-  created_by: {
-    id: string;
-    full_name: string;
-  };
-}
-
-interface SupabaseCustomerResponse {
-  user_id: string;
-  profiles: {
-    id: string;
-    full_name: string;
-    created_at: string;
-  };
-}
-
 interface OrganizationOwner {
   id: string;
   full_name: string;
@@ -87,6 +52,16 @@ interface Agent {
   id: string;
   full_name: string;
   created_at: string;
+}
+
+// Add interface for Supabase response
+interface SupabaseUserWithProfile {
+  user_id: string;
+  profiles: {
+    id: string;
+    full_name: string;
+    created_at: string;
+  };
 }
 
 export default function OrganizationDetails({ organization }: OrganizationDetailsProps) {
@@ -240,25 +215,75 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
           )
         `)
         .eq('organization_id', organization.id)
-        .eq('status', 'accepted');
+        .eq('status', 'accepted')
+        .eq('role', 'member');
 
       if (customerError) throw customerError;
 
+      // Fetch organization owner
+      const { data: ownerData } = await supabase
+        .from('organization_users')
+        .select(`
+          user_id,
+          profiles:profiles!organization_users_user_id_fkey (
+            id,
+            full_name,
+            created_at
+          )
+        `)
+        .eq('organization_id', organization.id)
+        .eq('role', 'owner')
+        .eq('status', 'accepted')
+        .single();
+
+      if (ownerData) {
+        const owner = ownerData as unknown as SupabaseUserWithProfile;
+        setOwner({
+          id: owner.profiles.id,
+          full_name: owner.profiles.full_name,
+          created_at: owner.profiles.created_at
+        });
+      }
+
+      // Fetch organization agents
+      const { data: agentData } = await supabase
+        .from('organization_users')
+        .select(`
+          user_id,
+          profiles:profiles!organization_users_user_id_fkey (
+            id,
+            full_name,
+            created_at
+          )
+        `)
+        .eq('organization_id', organization.id)
+        .eq('role', 'admin')
+        .eq('status', 'accepted');
+
+      if (agentData) {
+        const agents = agentData as unknown as SupabaseUserWithProfile[];
+        const transformedAgents = agents.map(agent => ({
+          id: agent.profiles.id,
+          full_name: agent.profiles.full_name,
+          created_at: agent.profiles.created_at
+        }));
+        setAgents(transformedAgents);
+      }
+
       // Get ticket counts for each customer
       const customerTicketCounts = await Promise.all(
-        (customerData || []).map(async (customer: any): Promise<Customer> => {
-          const { count } = await supabase
+        (customerData || []).map(async (customer: any) => {
+          const customerProfile = customer.profiles as unknown as { id: string; full_name: string; created_at: string };
+          const { data: ticketCount } = await supabase
             .from('tickets')
             .select('id', { count: 'exact' })
-            .eq('organization_id', organization.id)
-            .eq('created_by', customer.profiles.id)
-            .single();
+            .eq('created_by', customerProfile.id);
 
           return {
-            id: customer.profiles.id,
-            full_name: customer.profiles.full_name,
-            created_at: customer.profiles.created_at,
-            total_tickets: count || 0
+            id: customerProfile.id,
+            full_name: customerProfile.full_name,
+            created_at: customerProfile.created_at,
+            total_tickets: ticketCount?.length || 0
           };
         })
       );
@@ -275,57 +300,6 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         avgResponseTime: '2h 30m', // This should be calculated based on actual data
         openTickets: openTicketData?.length || 0
       });
-
-      // If user is admin, fetch additional data
-      if (profileData?.role === 'admin') {
-        // Fetch organization owner
-        const { data: ownerData, error: ownerError } = await supabase
-          .from('organization_users')
-          .select(`
-            user_id,
-            profiles:profiles!organization_users_user_id_fkey (
-              id,
-              full_name,
-              created_at
-            )
-          `)
-          .eq('organization_id', organization.id)
-          .eq('role', 'owner')
-          .single();
-
-        if (ownerError) throw ownerError;
-        
-        if (ownerData?.profiles) {
-          setOwner({
-            id: ownerData.profiles.id,
-            full_name: ownerData.profiles.full_name,
-            created_at: ownerData.profiles.created_at
-          });
-        }
-
-        // Fetch assigned agents
-        const { data: agentData, error: agentError } = await supabase
-          .from('agent_organizations')
-          .select(`
-            agent_id,
-            profiles:profiles!agent_organizations_agent_id_fkey (
-              id,
-              full_name,
-              created_at
-            )
-          `)
-          .eq('organization_id', organization.id);
-
-        if (agentError) throw agentError;
-
-        if (agentData) {
-          setAgents(agentData.map(agent => ({
-            id: agent.profiles.id,
-            full_name: agent.profiles.full_name,
-            created_at: agent.profiles.created_at
-          })));
-        }
-      }
 
     } catch (error: any) {
       console.error('Error fetching organization data:', error);

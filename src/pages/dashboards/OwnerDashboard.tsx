@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import DashboardLayout from '../../components/DashboardLayout';
 import OrganizationDetails from '../OrganizationDetails';
-
-interface Organization {
-  id: string;
-  name: string;
-}
+import { Organization } from '../../lib/types';
 
 export default function OwnerDashboard() {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);

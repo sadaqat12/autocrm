@@ -7,7 +7,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string, phone: string, organizationName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, phone: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   };
 
-  const signUp = async (email: string, password: string, fullName: string, phone: string, organizationName: string) => {
+  const signUp = async (email: string, password: string, fullName: string, phone: string) => {
     // Get the current URL's origin, fallback to localhost if not available
     const redirectTo = typeof window !== 'undefined' 
       ? `${window.location.origin}/auth/callback`

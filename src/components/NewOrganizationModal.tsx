@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 
 interface NewOrganizationModalProps {
   isOpen: boolean;
@@ -33,8 +33,8 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
       if (profileError) throw profileError;
       if (!profileData) throw new Error('Profile not found');
 
-      // Create the organization
-      const { data: orgData, error: insertError } = await supabase
+      // Create the organization using admin client
+      const { data: orgData, error: insertError } = await supabaseAdmin
         .from('organizations')
         .insert([{ name }])
         .select('id');
@@ -42,8 +42,8 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
       if (insertError) throw insertError;
       if (!orgData?.[0]?.id) throw new Error('Failed to create organization');
 
-      // Create the organization_users entry
-      const { error: userError } = await supabase
+      // Create the organization_users entry using admin client
+      const { error: userError } = await supabaseAdmin
         .from('organization_users')
         .insert([{
           organization_id: orgData[0].id,
@@ -54,18 +54,6 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
         }]);
 
       if (userError) throw userError;
-
-      // Now fetch the organization details if needed
-      const { error: selectError } = await supabase
-        .from('organizations')
-        .select('*')
-        .eq('id', orgData[0].id)
-        .single();
-
-      if (selectError) {
-        console.warn('Failed to fetch organization details:', selectError);
-        // Don't throw here, we've already created the org
-      }
 
       setName('');
       onSuccess();

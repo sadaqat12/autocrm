@@ -42,30 +42,6 @@
     "roles": "{authenticated}"
   },
   {
-    "tablename": "audit_log",
-    "policyname": "audit_log_agent_insert",
-    "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "audit_log",
-    "policyname": "audit_log_org_admin_insert",
-    "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "audit_log",
-    "policyname": "audit_log_org_select",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "audit_log",
-    "policyname": "audit_log_ticket_creator_insert",
-    "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
     "tablename": "organization_users",
     "policyname": "admin_access",
     "cmd": "ALL",
@@ -180,75 +156,9 @@
     "roles": "{authenticated}"
   },
   {
-    "tablename": "ticket_attachments",
-    "policyname": "ticket_attachments_delete",
-    "cmd": "DELETE",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_attachments",
-    "policyname": "ticket_attachments_insert",
-    "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_attachments",
-    "policyname": "ticket_attachments_select",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_attachments",
-    "policyname": "ticket_attachments_update",
-    "cmd": "UPDATE",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_messages",
-    "policyname": "ticket_messages_delete",
-    "cmd": "DELETE",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_messages",
-    "policyname": "ticket_messages_insert",
-    "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_messages",
-    "policyname": "ticket_messages_select",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "ticket_messages",
-    "policyname": "ticket_messages_update",
-    "cmd": "UPDATE",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "tickets",
-    "policyname": "tickets_delete",
-    "cmd": "DELETE",
-    "roles": "{authenticated}"
-  },
-  {
     "tablename": "tickets",
     "policyname": "tickets_insert",
     "cmd": "INSERT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "tickets",
-    "policyname": "tickets_select",
-    "cmd": "SELECT",
-    "roles": "{authenticated}"
-  },
-  {
-    "tablename": "tickets",
-    "policyname": "tickets_update",
-    "cmd": "UPDATE",
     "roles": "{authenticated}"
   }
 ]

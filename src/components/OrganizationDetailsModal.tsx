@@ -80,11 +80,31 @@ export default function OrganizationDetailsModal({ isOpen, onClose }: Organizati
           member: usersByRole?.filter(u => u.role === 'member').length || 0,
         };
 
-        // Get tickets data
+        // Get tickets for this organization
         const { data: tickets } = await supabase
           .from('tickets')
-          .select('*')
-          .eq('organization_id', org.id);
+          .select(`
+            id,
+            subject,
+            status,
+            priority,
+            category,
+            created_at,
+            updated_at,
+            first_response_at,
+            closed_at,
+            satisfaction_rating,
+            created_by,
+            assigned_to,
+            organization_id,
+            messages:ticket_messages(
+              id,
+              created_at,
+              created_by
+            )
+          `)
+          .eq('organization_id', org.id)
+          .order('created_at', { ascending: true });
 
         const openTickets = tickets?.filter(t => t.status === 'open').length || 0;
         const closedTickets = tickets?.filter(t => t.status === 'closed').length || 0;
@@ -118,10 +138,12 @@ export default function OrganizationDetailsModal({ isOpen, onClose }: Organizati
             }, 0) / closedTicketsData.length / (1000 * 60 * 60) // Convert to hours
           : 0;
 
-        const ticketsWithResponse = tickets?.filter(t => t.first_response_at && t.created_at) || [];
+        // Calculate average response time using first_response_at
+        const ticketsWithResponse = tickets?.filter(t => t.first_response_at !== null && t.created_at) || [];
         const avgResponseTime = ticketsWithResponse.length
           ? ticketsWithResponse.reduce((sum, t) => {
-              return sum + (new Date(t.first_response_at).getTime() - new Date(t.created_at).getTime());
+              const responseTime = new Date(t.first_response_at!).getTime() - new Date(t.created_at).getTime();
+              return sum + (responseTime > 0 ? responseTime : 0); // Ensure we don't add negative times
             }, 0) / ticketsWithResponse.length / (1000 * 60 * 60) // Convert to hours
           : 0;
 

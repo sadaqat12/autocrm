@@ -23,7 +23,10 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
     const checkOrgMembership = async () => {
       if (!profile?.id) return;
 
-      // First check if any membership exists
+      // If user is an admin, they can create tickets in any organization
+      if (profile.role === 'admin') return;
+
+      // For non-admins, check organization membership
       const { data: membershipData, error: membershipError } = await supabase
         .from('organization_users')
         .select('status, role')
@@ -36,7 +39,7 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
         return;
       }
 
-      if (profile.role !== 'admin' && (!membershipData || membershipData.length === 0)) {
+      if (!membershipData || membershipData.length === 0) {
         setError('You are not a member of this organization. Please request access from an administrator.');
         return;
       }
@@ -49,7 +52,7 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
     };
 
     checkOrgMembership();
-  }, [profile?.id, organizationId]);
+  }, [profile?.id, organizationId, profile?.role]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,22 +60,79 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
     setError(null);
 
     try {
+      // First check if user has permission
+      if (profile?.role === 'admin') {
+        // System admins can create tickets in any organization
+        console.log('User is system admin, proceeding with ticket creation');
+      } else {
+        // Check if user is an agent for this organization
+        const { data: agentData, error: agentError } = await supabase
+          .from('agent_organizations')
+          .select('agent_id')
+          .eq('agent_id', profile?.id)
+          .eq('organization_id', organizationId)
+          .single();
+
+        console.log('Agent check result:', { agentData, agentError });
+
+        if (agentError && agentError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+          console.error('Error checking agent status:', agentError);
+          throw agentError;
+        }
+
+        if (!agentData) {
+          // Not an agent, check if user is an accepted org member
+          const { data: orgUser, error: orgUserError } = await supabase
+            .from('organization_users')
+            .select('status, role')
+            .eq('user_id', profile?.id)
+            .eq('organization_id', organizationId)
+            .single();
+
+          console.log('Organization member check result:', { orgUser, orgUserError });
+
+          if (orgUserError) {
+            console.error('Error checking organization membership:', orgUserError);
+            throw orgUserError;
+          }
+
+          if (!orgUser || orgUser.status !== 'accepted') {
+            console.error('User membership status:', orgUser?.status);
+            throw new Error('User is not an accepted member of this organization');
+          }
+
+          console.log('Confirmed user is accepted member with role:', orgUser.role);
+        }
+      }
+
+      const ticketData = {
+        organization_id: organizationId,
+        subject,
+        priority,
+        category,
+        created_by: profile?.id,
+        status: 'open',
+        tags: [],
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        assigned_to: null
+      };
+
+      console.log('Attempting to create ticket with data:', ticketData);
+
       // Insert the ticket
       const { data: ticket, error: ticketError } = await supabase
         .from('tickets')
-        .insert([
-          {
-            organization_id: organizationId,
-            subject,
-            priority,
-            category,
-            created_by: profile?.id,
-          },
-        ])
+        .insert([ticketData])
         .select()
         .single();
 
-      if (ticketError) throw ticketError;
+      if (ticketError && !ticket) {
+        console.error('Ticket creation error details:', ticketError);
+        throw ticketError;
+      }
+
+      console.log('Ticket created successfully:', ticket);
 
       // Insert the initial message
       const { error: messageError } = await supabase
@@ -86,7 +146,10 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
           },
         ]);
 
-      if (messageError) throw messageError;
+      if (messageError) {
+        console.error('Message creation error:', messageError);
+        throw messageError;
+      }
 
       onSuccess();
     } catch (err) {

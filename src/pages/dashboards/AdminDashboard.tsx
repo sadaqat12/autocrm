@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { Organization } from '../../lib/types';
 import Logo from '../../components/Logo';
 import UserDetailsModal from '../../components/UserDetailsModal';
 import AgentDetailsModal from '../../components/AgentDetailsModal';
@@ -17,14 +16,6 @@ interface OrgStats {
   closed_tickets: number;
   tickets_per_month: { month: string; count: number }[];
   tickets_per_agent: { agent: string; count: number }[];
-}
-
-interface TicketWithAssignee {
-  id: string;
-  assigned_to: {
-    id: string;
-    full_name: string;
-  } | null;
 }
 
 export default function AdminDashboard() {
@@ -48,10 +39,39 @@ export default function AdminDashboard() {
 
   async function fetchOrganizationStats() {
     try {
-      // Fetch organizations
-      const { data: orgs, error: orgsError } = await supabase
+      setLoading(true);
+
+      // Get current user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) throw new Error('No authenticated user');
+
+      // First check if the current user is an admin
+      const { data: currentUser, error: userError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) throw userError;
+
+      const isAdmin = currentUser?.role === 'admin';
+
+      // Fetch organizations - if admin, fetch all, otherwise only associated ones
+      const organizationsQuery = supabase
         .from('organizations')
         .select('*');
+
+      if (!isAdmin) {
+        const { data: userOrgIds } = await supabase
+          .from('organization_users')
+          .select('organization_id')
+          .eq('user_id', user.id);
+
+        organizationsQuery.in('id', userOrgIds?.map(org => org.organization_id) || []);
+      }
+
+      const { data: orgs, error: orgsError } = await organizationsQuery;
 
       if (orgsError) throw orgsError;
 
@@ -65,8 +85,21 @@ export default function AdminDashboard() {
         .select('*', { count: 'exact' })
         .eq('role', 'agent');
 
+      // First fetch all tickets since admin has access to all
+      const { data: allTickets, error: ticketsError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          first_response_at,
+          organization:organizations(*),
+          created_by_profile:profiles!tickets_created_by_fkey(*),
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(*)
+        `);
+
+      if (ticketsError) throw ticketsError;
+
       // Fetch stats for each organization
-      for (const org of orgs) {
+      for (const org of orgs || []) {
         // Get users count
         const { count: usersCount } = await supabase
           .from('organization_users')
@@ -85,36 +118,21 @@ export default function AdminDashboard() {
 
         const agentsCount = orgAgents?.length || 0;
 
-        // Get tickets stats
-        const { data: tickets } = await supabase
-          .from('tickets')
-          .select('*')
-          .eq('organization_id', org.id);
-
-        const openTickets = tickets?.filter(t => t.status !== 'closed').length || 0;
-        const closedTickets = tickets?.filter(t => t.status === 'closed').length || 0;
+        // Filter tickets for this organization
+        const orgTickets = allTickets?.filter(t => t.organization_id === org.id) || [];
+        const openTickets = orgTickets.filter(t => t.status !== 'closed').length;
+        const closedTickets = orgTickets.filter(t => t.status === 'closed').length;
 
         // Calculate tickets per month
-        const ticketsPerMonth = tickets?.reduce((acc: any, ticket) => {
+        const ticketsPerMonth = orgTickets.reduce((acc: any, ticket) => {
           const month = new Date(ticket.created_at).toLocaleString('default', { month: 'long', year: 'numeric' });
           acc[month] = (acc[month] || 0) + 1;
           return acc;
         }, {});
 
-        // Calculate tickets per agent
-        const { data: ticketsPerAgent } = await supabase
-          .from('tickets')
-          .select(`
-            id,
-            assigned_to:profiles!tickets_assigned_to_fkey (
-              id,
-              full_name
-            )
-          `)
-          .eq('organization_id', org.id);
-
-        const agentTickets = ((ticketsPerAgent || []) as unknown as TicketWithAssignee[]).reduce((acc: any, ticket) => {
-          const agentName = ticket.assigned_to?.full_name || 'Unassigned';
+        // Calculate tickets per agent using the full profile data
+        const agentTickets = orgTickets.reduce((acc: any, ticket) => {
+          const agentName = ticket.assigned_to_profile?.full_name || 'Unassigned';
           acc[agentName] = (acc[agentName] || 0) + 1;
           return acc;
         }, {});
@@ -137,14 +155,14 @@ export default function AdminDashboard() {
         });
 
         totalUsers += usersCount || 0;
-        totalTickets += (tickets?.length || 0);
+        totalTickets += orgTickets.length;
       }
 
       setOrganizations(orgStats);
       setTotalStats({
         total_users: totalUsers,
-        total_tickets: totalTickets,
-        total_orgs: orgs.length,
+        total_tickets: allTickets?.length || 0, // Use total tickets count for admins
+        total_orgs: orgs?.length || 0,
         total_agents: totalAgents || 0,
       });
     } catch (error) {
@@ -334,6 +352,8 @@ export default function AdminDashboard() {
             <h3 className="text-lg leading-6 font-medium text-gray-900 mb-6">Organizations</h3>
             {loading ? (
               <div className="text-center py-4">Loading...</div>
+            ) : organizations.length === 0 ? (
+              <div className="text-center py-4 text-gray-500">No organizations found</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {organizations.map((org) => (

@@ -47,7 +47,7 @@ export default function Login() {
       setSuccessMessage('');
       setLoading(true);
       if (isSignUp) {
-        await signUp(email, password, fullName, phone, '');
+        await signUp(email, password, fullName, phone);
         setSuccessMessage('Please check your email to verify your account. Once verified, you can sign in.');
       } else {
         await signIn(email, password);

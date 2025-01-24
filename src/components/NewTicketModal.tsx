@@ -45,7 +45,11 @@ export default function NewTicketModal({ isOpen, onClose, onSuccess, organizatio
                 >
                   Create New Ticket
                 </Dialog.Title>
-                <NewTicketForm onClose={onClose} onSuccess={onSuccess} organizationId={organizationId} />
+                <NewTicketForm 
+                    onClose={onClose} 
+                    onSuccess={() => onSuccess?.()} 
+                    organizationId={organizationId} 
+                />
               </Dialog.Panel>
             </Transition.Child>
           </div>
