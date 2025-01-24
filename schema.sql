@@ -1182,7 +1182,64 @@ USING (
   )
 );
 
--- No INSERT/UPDATE/DELETE => read-only logs
+-- INSERT policies for audit_log
+CREATE POLICY audit_log_admin_insert
+ON audit_log
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM profiles
+    WHERE id = auth.uid()
+      AND role = 'admin'
+  )
+);
+
+CREATE POLICY audit_log_agent_insert
+ON audit_log
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM tickets t
+    JOIN agent_organizations ao ON ao.organization_id = t.organization_id
+    WHERE t.id = audit_log.ticket_id
+      AND ao.agent_id = auth.uid()
+  )
+);
+
+CREATE POLICY audit_log_org_admin_insert
+ON audit_log
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM tickets t
+    JOIN organization_users ou ON ou.organization_id = t.organization_id
+    WHERE t.id = audit_log.ticket_id
+      AND ou.user_id = auth.uid()
+      AND ou.role IN ('owner','admin')
+      AND ou.status = 'accepted'
+  )
+);
+
+CREATE POLICY audit_log_ticket_creator_insert
+ON audit_log
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM tickets t
+    WHERE t.id = audit_log.ticket_id
+      AND t.created_by = auth.uid()
+  )
+);
+
+-- No UPDATE/DELETE => read-only logs
 
 -- Create profile function that bypasses RLS
 CREATE OR REPLACE FUNCTION create_profile(

@@ -36,7 +36,7 @@ export default function NewTicketForm({ onClose, onSuccess, organizationId }: Ne
         return;
       }
 
-      if (!membershipData || membershipData.length === 0) {
+      if (profile.role !== 'admin' && (!membershipData || membershipData.length === 0)) {
         setError('You are not a member of this organization. Please request access from an administrator.');
         return;
       }

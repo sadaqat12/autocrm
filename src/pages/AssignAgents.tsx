@@ -84,24 +84,44 @@ export default function AssignAgents() {
 
       if (currentlyAssigned) {
         // Remove assignment
-        const { error } = await supabase
+        const { error: orgUserError } = await supabase
           .from('organization_users')
           .delete()
           .eq('organization_id', orgId)
           .eq('user_id', agentId);
 
-        if (error) throw error;
+        if (orgUserError) throw orgUserError;
+
+        // Also remove from agent_organizations
+        const { error: agentOrgError } = await supabase
+          .from('agent_organizations')
+          .delete()
+          .eq('organization_id', orgId)
+          .eq('agent_id', agentId);
+
+        if (agentOrgError) throw agentOrgError;
       } else {
         // Add assignment
-        const { error } = await supabase
+        const { error: orgUserError } = await supabase
           .from('organization_users')
           .insert({
             organization_id: orgId,
             user_id: agentId,
-            role: 'admin'
+            role: 'admin',
+            status: 'accepted'  // Important: Set status to accepted
           });
 
-        if (error) throw error;
+        if (orgUserError) throw orgUserError;
+
+        // Also add to agent_organizations
+        const { error: agentOrgError } = await supabase
+          .from('agent_organizations')
+          .insert({
+            organization_id: orgId,
+            agent_id: agentId
+          });
+
+        if (agentOrgError) throw agentOrgError;
       }
 
       // Update local state

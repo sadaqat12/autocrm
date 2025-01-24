@@ -31,14 +31,44 @@
   },
   {
     "tablename": "audit_log",
+    "policyname": "audit_log_admin_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
     "policyname": "audit_log_admin_select",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "audit_log",
+    "policyname": "audit_log_agent_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
+    "policyname": "audit_log_org_admin_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
     "policyname": "audit_log_org_select",
     "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "audit_log",
+    "policyname": "audit_log_ticket_creator_insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organization_users",
+    "policyname": "admin_access",
+    "cmd": "ALL",
     "roles": "{authenticated}"
   },
   {
@@ -49,19 +79,25 @@
   },
   {
     "tablename": "organization_users",
-    "policyname": "org_admin_manage",
-    "cmd": "ALL",
+    "policyname": "org_users_insert",
+    "cmd": "INSERT",
     "roles": "{authenticated}"
   },
   {
     "tablename": "organization_users",
-    "policyname": "user_accept_own_invite",
+    "policyname": "org_users_select",
+    "cmd": "SELECT",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organization_users",
+    "policyname": "users_can_accept_invite",
     "cmd": "UPDATE",
     "roles": "{authenticated}"
   },
   {
-    "tablename": "organization_users",
-    "policyname": "user_view_own",
+    "tablename": "organizations",
+    "policyname": "Allow members to view organizations",
     "cmd": "SELECT",
     "roles": "{authenticated}"
   },
@@ -105,6 +141,12 @@
     "tablename": "organizations",
     "policyname": "org_owner_admin_update",
     "cmd": "UPDATE",
+    "roles": "{authenticated}"
+  },
+  {
+    "tablename": "organizations",
+    "policyname": "org_pending_invites_select",
+    "cmd": "SELECT",
     "roles": "{authenticated}"
   },
   {

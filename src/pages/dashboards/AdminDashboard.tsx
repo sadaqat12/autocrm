@@ -91,7 +91,7 @@ export default function AdminDashboard() {
           .select('*')
           .eq('organization_id', org.id);
 
-        const openTickets = tickets?.filter(t => t.status === 'open').length || 0;
+        const openTickets = tickets?.filter(t => t.status !== 'closed').length || 0;
         const closedTickets = tickets?.filter(t => t.status === 'closed').length || 0;
 
         // Calculate tickets per month
@@ -342,7 +342,7 @@ export default function AdminDashboard() {
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="text-xl font-semibold text-gray-900">{org.name}</h4>
                         <Link
-                          to={`/organizations/${org.id}`}
+                          to={`/organization/${org.id}`}
                           className="text-sm text-blue-600 hover:text-blue-900"
                         >
                           View Details →

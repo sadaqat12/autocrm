@@ -1,4 +1,4 @@
-export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type TicketStatus = 'open' | 'in_progress' | 'closed';
 export type TicketPriority = 'low' | 'medium' | 'high';
 export type TicketCategory = 'bug' | 'feature_request' | 'support' | 'billing' | 'other';
 export type MessageType = 'public' | 'internal' | 'system';
