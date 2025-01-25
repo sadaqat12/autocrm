@@ -169,6 +169,81 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
 
       if (closedTicketError) throw closedTicketError;
 
+      // Get total tickets count
+      const { count: totalTickets, error: totalTicketsError } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', organization.id);
+
+      if (totalTicketsError) throw totalTicketsError;
+
+      // Get open tickets count
+      const { count: openTickets, error: openTicketsError } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', organization.id)
+        .neq('status', 'closed');
+
+      if (openTicketsError) throw openTicketsError;
+
+      // Calculate average response time by first getting all tickets
+      const { data: tickets, error: ticketsError } = await supabase
+        .from('tickets')
+        .select('id, created_at, created_by')
+        .eq('organization_id', organization.id);
+
+      if (ticketsError) throw ticketsError;
+
+      // Then get all messages for these tickets
+      const ticketIds = tickets?.map(t => t.id) || [];
+      const { data: messages, error: messagesError } = await supabase
+        .from('ticket_messages')
+        .select('ticket_id, created_at, created_by')
+        .in('ticket_id', ticketIds)
+        .order('created_at', { ascending: true });
+
+      if (messagesError) throw messagesError;
+
+      // Get all agent and owner IDs for this organization
+      const { data: orgStaff, error: orgStaffError } = await supabase
+        .from('organization_users')
+        .select('user_id, role')
+        .eq('organization_id', organization.id)
+        .eq('status', 'accepted')
+        .in('role', ['admin', 'owner']);
+
+      if (orgStaffError) throw orgStaffError;
+
+      const staffIds = orgStaff?.map(staff => staff.user_id) || [];
+
+      // Calculate average response time
+      let totalResponseTime = 0;
+      let ticketsWithResponses = 0;
+
+      tickets?.forEach(ticket => {
+        const ticketCreatedAt = new Date(ticket.created_at);
+        const ticketMessages = messages?.filter(m => m.ticket_id === ticket.id) || [];
+        // Find first response from an agent or owner
+        const firstAgentResponse = ticketMessages.find(m => staffIds.includes(m.created_by));
+        
+        if (firstAgentResponse) {
+          const responseTime = new Date(firstAgentResponse.created_at).getTime() - ticketCreatedAt.getTime();
+          totalResponseTime += responseTime;
+          ticketsWithResponses++;
+        }
+      });
+
+      const avgResponseTimeMs = ticketsWithResponses > 0 ? totalResponseTime / ticketsWithResponses : 0;
+      const avgResponseTimeHours = Math.round(avgResponseTimeMs / (1000 * 60 * 60) * 10) / 10; // Round to 1 decimal place
+
+      // Set metrics
+      setMetrics({
+        totalTickets: totalTickets || 0,
+        openTickets: openTickets || 0,
+        activeUsers: customers?.length || 0,
+        avgResponseTime: `${avgResponseTimeHours}h`
+      });
+
       // Transform ticket data to match the Ticket type
       const transformOpenTickets = (openTicketData || []).map((ticket: any): Ticket => ({
         id: ticket.id,
@@ -289,17 +364,6 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
       );
 
       setCustomers(customerTicketCounts);
-
-      // Calculate metrics
-      const totalTickets = openTicketData?.length || 0 + closedTicketData?.length || 0;
-      const activeUsers = customerTicketCounts.length;
-
-      setMetrics({
-        totalTickets,
-        activeUsers,
-        avgResponseTime: '2h 30m', // This should be calculated based on actual data
-        openTickets: openTicketData?.length || 0
-      });
 
     } catch (error: any) {
       console.error('Error fetching organization data:', error);
@@ -429,7 +493,7 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
                 </div>
                 <div className="ml-5 w-0 flex-1">
                   <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Active Users</dt>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Active Customers</dt>
                     <dd className="flex items-baseline">
                       <div className="text-2xl font-semibold text-gray-900">{metrics.activeUsers}</div>
                     </dd>
@@ -451,7 +515,7 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">Avg. Response Time</dt>
                     <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">{metrics.avgResponseTime}h</div>
+                      <div className="text-2xl font-semibold text-gray-900">{metrics.avgResponseTime}</div>
                     </dd>
                   </dl>
                 </div>

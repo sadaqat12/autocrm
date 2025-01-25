@@ -3,6 +3,7 @@ import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import OrganizationList from './OrganizationList';
 import NewOrganizationModal from './NewOrganizationModal';
+import Logo from './Logo';
 import { Organization } from '../lib/types';
 
 interface Invitation {
@@ -38,10 +39,28 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
     };
   }, []);
 
+  // Add periodic invitation check
+  useEffect(() => {
+    if (!user?.id || profile?.role !== 'user') return;
+
+    // Initial check
+    fetchInvitations();
+
+    // Check every 30 seconds
+    const intervalId = setInterval(fetchInvitations, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [user?.id, profile?.role]);
+
   const fetchInvitations = async () => {
     if (!user?.id) return;
     
-    setLoading(true);
+    // Don't set loading state if we're just doing background checks
+    const isModalOpen = showInvitesModal;
+    if (isModalOpen) {
+      setLoading(true);
+    }
+    
     try {
       // First get the invitations
       const { data: invitationData, error: invitationError } = await supabase
@@ -99,7 +118,9 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
     } catch (error) {
       console.error('Error in fetchInvitations:', error);
     } finally {
-      setLoading(false);
+      if (isModalOpen) {
+        setLoading(false);
+      }
     }
   };
 
@@ -251,7 +272,7 @@ export default function DashboardLayout({ children, onSelectOrg }: DashboardLayo
         }`}
       >
         <div className="flex items-center justify-between h-16 px-4 bg-blue-800">
-          <span className="text-xl font-semibold text-white">AutoCRM</span>
+          <Logo size="medium" className="text-white" />
           <button
             onClick={() => setIsSidebarOpen(false)}
             className="text-white md:hidden focus:outline-none focus:ring-2 focus:ring-blue-400"
