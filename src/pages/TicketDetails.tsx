@@ -732,7 +732,7 @@ export default function TicketDetails() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {ticket.ticket_attachments.map((attachment) => {
+            {ticket?.ticket_attachments?.map((attachment) => {
               const fileType = getFileType(attachment.file_name);
               const signedUrl = attachment.file_url;
 
