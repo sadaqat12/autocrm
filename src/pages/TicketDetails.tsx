@@ -39,6 +39,19 @@ interface TicketWithProfiles extends TicketType {
   ticket_attachments: TicketAttachment[];
 }
 
+interface AuditLogEntry {
+  id: string;
+  ticket_id: string;
+  event_type: string;
+  from_value: string | null;
+  to_value: string;
+  created_by: string;
+  created_at: string;
+  created_by_profile?: Profile;
+  from_profile?: Profile;
+  to_profile?: Profile;
+}
+
 // Add helper function to get file type
 const getFileType = (fileName: string): 'image' | 'pdf' | 'other' => {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
@@ -80,12 +93,36 @@ export default function TicketDetails() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showPriorityModal, setShowPriorityModal] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const priorityDropdownRef = useRef<HTMLDivElement>(null);
+  const assignDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Add click outside handler
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setShowStatusModal(false);
+      }
+      if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(event.target as Node)) {
+        setShowPriorityModal(false);
+      }
+      if (assignDropdownRef.current && !assignDropdownRef.current.contains(event.target as Node)) {
+        setShowAssignModal(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadTicketDetails() {
       if (!ticketId) return;
 
-      const [ticketResult, messagesResult, attachmentsResult] = await Promise.all([
+      const [ticketResult, messagesResult, attachmentsResult, auditLogsResult] = await Promise.all([
         supabase
           .from('tickets')
           .select(`
@@ -129,6 +166,20 @@ export default function TicketDetails() {
           .from('ticket_attachments')
           .select('*')
           .eq('ticket_id', ticketId)
+          .order('created_at', { ascending: false }),
+
+        supabase
+          .from('audit_log')
+          .select(`
+            *,
+            created_by_profile:profiles(
+              id,
+              full_name,
+              phone,
+              role
+            )
+          `)
+          .eq('ticket_id', ticketId)
           .order('created_at', { ascending: false })
       ]);
 
@@ -148,6 +199,41 @@ export default function TicketDetails() {
 
       if (attachmentsResult.data) {
         // Assuming setTicketAttachments is called elsewhere in the code
+      }
+
+      if (auditLogsResult.data) {
+        const typedAuditLogs = await Promise.all(auditLogsResult.data.map(async log => {
+          const processedLog = {
+            ...log,
+            created_by_profile: Array.isArray(log.created_by_profile) 
+              ? log.created_by_profile[0] 
+              : log.created_by_profile
+          };
+
+          // Fetch profile information for assignment changes
+          if (log.event_type === 'assignment_change') {
+            if (log.from_value) {
+              const { data: fromProfile } = await supabase
+                .from('profiles')
+                .select('id, full_name, phone, role')
+                .eq('id', log.from_value)
+                .single();
+              processedLog.from_profile = fromProfile;
+            }
+            
+            if (log.to_value) {
+              const { data: toProfile } = await supabase
+                .from('profiles')
+                .select('id, full_name, phone, role')
+                .eq('id', log.to_value)
+                .single();
+              processedLog.to_profile = toProfile;
+            }
+          }
+
+          return processedLog as AuditLogEntry;
+        }));
+        setAuditLogs(typedAuditLogs);
       }
 
       setLoading(false);
@@ -280,15 +366,138 @@ export default function TicketDetails() {
     }
   };
 
-  const handleStatusChange = async () => {
+  const handleStatusChange = async (newStatus: TicketStatus) => {
     if (!ticket || !ticketId) return;
-    setShowStatusModal(true);
+    setSaving(true);
+    try {
+      // Update ticket status
+      const { error: updateError } = await supabase
+        .from('tickets')
+        .update({ status: newStatus })
+        .eq('id', ticketId);
+
+      if (updateError) throw updateError;
+
+      // Fetch updated ticket data to refresh the UI
+      const { data: updatedTicket, error: fetchError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          ),
+          created_by_profile:profiles!tickets_created_by_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          )
+        `)
+        .eq('id', ticketId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      setTicket(updatedTicket as TicketWithProfiles);
+      setShowStatusModal(false);
+    } catch (error: any) {
+      console.error('Error updating ticket status:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePriorityChange = async (newPriority: TicketPriority) => {
+    if (!ticket || !ticketId) return;
+    setSaving(true);
+    try {
+      // Update ticket priority
+      const { error: updateError } = await supabase
+        .from('tickets')
+        .update({ priority: newPriority })
+        .eq('id', ticketId);
+
+      if (updateError) throw updateError;
+
+      // Fetch updated ticket data to refresh the UI
+      const { data: updatedTicket, error: fetchError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          ),
+          created_by_profile:profiles!tickets_created_by_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          )
+        `)
+        .eq('id', ticketId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      setTicket(updatedTicket as TicketWithProfiles);
+      setShowPriorityModal(false);
+    } catch (error: any) {
+      console.error('Error updating ticket priority:', error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAssign = async (agentId: string) => {
     if (!ticket || !ticketId) return;
     setSelectedAgent(agentId);
-    setShowAssignModal(true);
+    setSaving(true);
+    try {
+      // Update ticket assignment
+      const { error: updateError } = await supabase
+        .from('tickets')
+        .update({ assigned_to: agentId })
+        .eq('id', ticketId);
+
+      if (updateError) throw updateError;
+
+      // Fetch updated ticket data to refresh the UI
+      const { data: updatedTicket, error: fetchError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          ),
+          created_by_profile:profiles!tickets_created_by_fkey(
+            id,
+            full_name,
+            phone,
+            role
+          )
+        `)
+        .eq('id', ticketId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      setTicket(updatedTicket as TicketWithProfiles);
+      setShowAssignModal(false);
+      setSelectedAgent(null);
+    } catch (error: any) {
+      console.error('Error assigning ticket:', error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAttachmentUpload = async (files: FileList) => {
@@ -333,11 +542,6 @@ export default function TicketDetails() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handlePriorityChange = async () => {
-    if (!ticket || !ticketId) return;
-    setShowPriorityModal(true);
   };
 
   if (loading) {
@@ -401,13 +605,13 @@ export default function TicketDetails() {
           </div>
           {canUpdateTicket && (
             <div className="flex gap-2">
-              <div className="relative group">
+              <div className="relative group" ref={statusDropdownRef}>
                 <button
-                  onClick={() => handleStatusChange()}
-                  disabled={ticket.status === 'closed' || ticket.status === 'in_progress'}
+                  onClick={() => setShowStatusModal(true)}
+                  disabled={saving}
                   className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 font-medium"
                 >
-                  {ticket.status === 'closed' || ticket.status === 'in_progress' ? 'Updating...' : (
+                  {saving ? 'Updating...' : (
                     <>
                       Update Status
                       <svg className="ml-2 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -422,7 +626,7 @@ export default function TicketDetails() {
                       {(['open', 'in_progress', 'closed'] as TicketStatus[]).map((status) => (
                         <button
                           key={status}
-                          onClick={() => handleStatusChange()}
+                          onClick={() => handleStatusChange(status)}
                           className="w-full text-left px-4 py-2 text-sm text-white hover:bg-indigo-700 flex items-center space-x-2"
                         >
                           <span className={`w-2 h-2 rounded-full ${
@@ -437,13 +641,13 @@ export default function TicketDetails() {
                   </div>
                 )}
               </div>
-              <div className="relative group">
+              <div className="relative group" ref={priorityDropdownRef}>
                 <button
-                  onClick={() => handlePriorityChange()}
-                  disabled={ticket.priority === 'high'}
+                  onClick={() => setShowPriorityModal(true)}
+                  disabled={saving}
                   className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 font-medium"
                 >
-                  {ticket.priority === 'high' ? 'Updating...' : (
+                  {saving ? 'Updating...' : (
                     <>
                       Update Priority
                       <svg className="ml-2 -mr-1 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -458,7 +662,7 @@ export default function TicketDetails() {
                       {(['low', 'medium', 'high'] as TicketPriority[]).map((priority) => (
                         <button
                           key={priority}
-                          onClick={() => handlePriorityChange()}
+                          onClick={() => handlePriorityChange(priority)}
                           className="w-full text-left px-4 py-2 text-sm text-white hover:bg-indigo-700 flex items-center space-x-2"
                         >
                           <span className={`w-2 h-2 rounded-full ${
@@ -473,7 +677,7 @@ export default function TicketDetails() {
                   </div>
                 )}
               </div>
-              <div className="relative">
+              <div className="relative" ref={assignDropdownRef}>
                 <button
                   onClick={() => setShowAssignModal(true)}
                   disabled={!canUpdateTicket}
@@ -772,6 +976,48 @@ export default function TicketDetails() {
                 </a>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* Audit Log Section */}
+      <div className="mt-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold mb-4">Audit Log</h2>
+          <div className="space-y-4">
+            {auditLogs.map((log) => (
+              <div key={log.id} className="border-b last:border-b-0 pb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-medium">
+                    {log.created_by_profile?.full_name || 'System'}
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {format(new Date(log.created_at), 'PPp')}
+                  </span>
+                </div>
+                <div className="text-gray-700">
+                  {log.event_type === 'status_change' && (
+                    <>Changed status from <span className="font-medium">{log.from_value || 'none'}</span> to <span className="font-medium">{log.to_value}</span></>
+                  )}
+                  {log.event_type === 'priority_change' && (
+                    <>Changed priority from <span className="font-medium">{log.from_value || 'none'}</span> to <span className="font-medium">{log.to_value}</span></>
+                  )}
+                  {log.event_type === 'assignment_change' && (
+                    <>
+                      {log.from_value 
+                        ? <>Reassigned ticket from <span className="font-medium">{log.from_profile?.full_name || log.from_value}</span> to <span className="font-medium">{log.to_profile?.full_name || log.to_value}</span></>
+                        : <>Assigned ticket to <span className="font-medium">{log.to_profile?.full_name || log.to_value}</span></>
+                      }
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+            {auditLogs.length === 0 && (
+              <div className="text-gray-500 text-center py-4">
+                No audit log entries found
+              </div>
+            )}
           </div>
         </div>
       </div>
