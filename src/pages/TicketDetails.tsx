@@ -301,26 +301,32 @@ export default function TicketDetails() {
     async function loadAgents() {
       if (!ticket?.organization_id) return;
 
-      const { data, error } = await supabase
-        .from('agent_organizations')
+      // Get agents from organization_users table (admins and agents)
+      const { data: orgUsers, error: orgUsersError } = await supabase
+        .from('organization_users')
         .select(`
-          agent_id,
-          profiles:agent_id(
+          user_id,
+          role,
+          profile:profiles(
             id,
             full_name,
             role,
             phone
           )
         `)
-        .eq('organization_id', ticket.organization_id);
+        .eq('organization_id', ticket.organization_id)
+        .eq('status', 'accepted')
+        .in('role', ['admin', 'owner']);
 
-      if (!error && data) {
-        // Extract agent profiles from the response
-        const profiles: Profile[] = [];
-        for (const item of data) {
-          const profile = item.profiles as unknown as { id: string; full_name: string; role: string; phone?: string };
+      console.log('Org users query result:', { orgUsers, orgUsersError });
+
+      if (!orgUsersError && orgUsers) {
+        // Extract agent profiles
+        const orgProfiles: Profile[] = [];
+        for (const item of orgUsers) {
+          const profile = item.profile as unknown as { id: string; full_name: string; role: string; phone?: string };
           if (profile) {
-            profiles.push({
+            orgProfiles.push({
               id: profile.id,
               full_name: profile.full_name,
               role: profile.role,
@@ -328,7 +334,9 @@ export default function TicketDetails() {
             });
           }
         }
-        setAvailableAgents(profiles);
+        setAvailableAgents(orgProfiles);
+      } else if (orgUsersError) {
+        console.error('Error loading agents:', orgUsersError);
       }
     }
 

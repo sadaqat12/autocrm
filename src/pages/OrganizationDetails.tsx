@@ -451,7 +451,7 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
       <div className="relative z-10 space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header with Logo and Navigation */}
         <Navbar
-          title={organization.name}
+          title="Organization Details"
           actions={navbarActions}
         />
 
@@ -580,9 +580,9 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         {isAdmin && (
           <div className={commonStyles.card}>
             <div className="p-6">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <h3 className={commonStyles.heading}>Assigned Agents</h3>
-                <div className={commonStyles.buttonPrimary.wrapper}>
+                <div className={`${commonStyles.buttonPrimary.wrapper} max-w-[200px]`}>
                   <div className={commonStyles.buttonPrimary.gradient} />
                   <Link
                     to={`/assign-agents/${organization.id}`}
@@ -713,62 +713,62 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Customers Section */}
-      {(canManageOrg || isAdmin) && (
-        <div className={commonStyles.card}>
-          <div className="p-6">
-            <div className="flex justify-between items-center">
-              <h3 className={commonStyles.heading}>Customers</h3>
-              {canManageOrg && (
-                <div className={commonStyles.buttonPrimary.wrapper}>
-                  <div className={commonStyles.buttonPrimary.gradient} />
-                  <button
-                    onClick={() => setShowInviteModal(true)}
-                    className={`${commonStyles.buttonPrimary.content} !py-2`}
-                  >
-                    <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                    </svg>
-                    Invite Customer
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="mt-4">
-              {customers.length === 0 ? (
-                <div className={commonStyles.messageBox.info}>
-                  <p>No customers yet</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {customers.map((customer) => (
-                    <div key={customer.id} className={commonStyles.cardWithHover}>
-                      <div className="p-4">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
-                            <span className="text-blue-400 font-medium text-lg">
-                              {customer.full_name.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="ml-4">
-                            <h4 className={`${commonStyles.text} font-medium`}>{customer.full_name}</h4>
-                            <div className="mt-1 text-sm text-gray-400">
-                              <div>Total Tickets: {customer.total_tickets}</div>
-                              <div>Joined: {new Date(customer.created_at).toLocaleDateString()}</div>
+        {/* Customers Section */}
+        {(canManageOrg || isAdmin) && (
+          <div className={commonStyles.card}>
+            <div className="p-6">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                <h3 className={commonStyles.heading}>Customers</h3>
+                {canManageOrg && (
+                  <div className={`${commonStyles.buttonPrimary.wrapper} w-full sm:w-auto max-w-[200px]`}>
+                    <div className={commonStyles.buttonPrimary.gradient} />
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className={`${commonStyles.buttonPrimary.content} !py-2`}
+                    >
+                      <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                      </svg>
+                      Invite Customer
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="mt-4">
+                {customers.length === 0 ? (
+                  <div className={commonStyles.messageBox.info}>
+                    <p>No customers yet</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {customers.map((customer) => (
+                      <div key={customer.id} className={commonStyles.cardWithHover}>
+                        <div className="p-4">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                              <span className="text-blue-400 font-medium text-lg">
+                                {customer.full_name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="ml-4">
+                              <h4 className={`${commonStyles.text} font-medium`}>{customer.full_name}</h4>
+                              <div className="mt-1 text-sm text-gray-400">
+                                <div>Total Tickets: {customer.total_tickets}</div>
+                                <div>Joined: {new Date(customer.created_at).toLocaleDateString()}</div>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <NewTicketModal
         isOpen={showNewTicketModal}
