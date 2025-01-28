@@ -1,36 +1,35 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { supabase } from '../lib/supabase';
+import { Dialog, Transition } from '@headlessui/react';
+import { commonStyles } from '../styles/theme';
 
 interface UserDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface UserDetails {
+interface UserStats {
   id: string;
   full_name: string;
-  organizations: {
-    org_name: string;
-    role: string;
-    tickets_created: number;
-  }[];
-}
-
-interface OrgUser {
   role: string;
-  organizations: {
-    id: string;
-    name: string;
-  };
+  owned_orgs?: number;
+  member_orgs?: number;
+  tickets_created?: number;
+  created_at: string;
 }
 
-interface Profile {
-  id: string;
-  full_name: string;
+interface RoleBasedUsers {
+  admins: UserStats[];
+  agents: UserStats[];
+  users: UserStats[];
 }
 
 export default function UserDetailsModal({ isOpen, onClose }: UserDetailsModalProps) {
-  const [users, setUsers] = useState<UserDetails[]>([]);
+  const [users, setUsers] = useState<RoleBasedUsers>({
+    admins: [],
+    agents: [],
+    users: []
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,52 +42,60 @@ export default function UserDetailsModal({ isOpen, onClose }: UserDetailsModalPr
     try {
       setLoading(true);
       
-      // Fetch all users with their profiles
+      // Fetch all users with their profiles and roles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name');
+        .select('id, full_name, created_at, role');
 
       if (profilesError) throw profilesError;
 
-      const userDetails: UserDetails[] = [];
+      const userStats: UserStats[] = [];
 
-      // For each user, fetch their organization memberships and tickets
-      for (const profile of (profiles as Profile[] || [])) {
-        // Get user's organizations and roles
-        const { data: orgUsers } = await supabase
-          .from('organization_users')
-          .select(`
-            role,
-            organizations!inner (
-              id,
-              name
-            )
-          `)
-          .eq('user_id', profile.id);
-
-        // Get tickets created by user per organization
-        const userOrgs = await Promise.all(((orgUsers || []) as unknown as OrgUser[]).map(async (orgUser) => {
-          const { count } = await supabase
-            .from('tickets')
-            .select('*', { count: 'exact' })
-            .eq('created_by', profile.id)
-            .eq('organization_id', orgUser.organizations.id);
-
-          return {
-            org_name: orgUser.organizations.name,
-            role: orgUser.role,
-            tickets_created: count || 0
-          };
-        }));
-
-        userDetails.push({
+      // For each user, fetch relevant stats
+      for (const profile of (profiles || [])) {
+        let userStat: UserStats = {
           id: profile.id,
           full_name: profile.full_name,
-          organizations: userOrgs
-        });
+          created_at: profile.created_at,
+          role: profile.role || 'user' // Default to 'user' if role is null
+        };
+
+        // Only calculate org and ticket stats for regular users
+        if (userStat.role === 'user') {
+          // Get user's organizations and roles
+          const { data: orgUsers } = await supabase
+            .from('organization_users')
+            .select(`
+              role,
+              organizations (
+                id,
+                name
+              )
+            `)
+            .eq('user_id', profile.id);
+
+          const ownedOrgs = (orgUsers || []).filter(ou => ou.role === 'owner').length;
+          const memberOrgs = (orgUsers || []).filter(ou => ou.role === 'member').length;
+
+          const { count: ticketsCreated } = await supabase
+            .from('tickets')
+            .select('*', { count: 'exact' })
+            .eq('created_by', profile.id);
+
+          userStat.owned_orgs = ownedOrgs;
+          userStat.member_orgs = memberOrgs;
+          userStat.tickets_created = ticketsCreated || 0;
+        }
+
+        userStats.push(userStat);
       }
 
-      setUsers(userDetails);
+      // Group users by role
+      setUsers({
+        admins: userStats.filter(u => u.role === 'admin'),
+        agents: userStats.filter(u => u.role === 'agent'),
+        users: userStats.filter(u => u.role === 'user')
+      });
     } catch (error) {
       console.error('Error fetching user details:', error);
     } finally {
@@ -96,69 +103,157 @@ export default function UserDetailsModal({ isOpen, onClose }: UserDetailsModalPr
     }
   }
 
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-900">User Details</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
-          >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        
-        <div className="px-6 py-4 overflow-auto max-h-[calc(90vh-8rem)]">
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {users.map((user) => (
-                <div key={user.id} className="bg-gray-50 rounded-lg p-4">
-                  <div className="mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">{user.full_name}</h3>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Organization</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tickets Created</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {user.organizations.map((org, idx) => (
-                          <tr key={idx}>
-                            <td className="px-4 py-2 text-sm text-gray-900">{org.org_name}</td>
-                            <td className="px-4 py-2 text-sm text-gray-900">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                ${org.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                                  org.role === 'agent' ? 'bg-blue-100 text-blue-800' :
-                                    'bg-gray-100 text-gray-800'}`}>
-                                {org.role}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-900">{org.tickets_created}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+  const renderAdminOrAgentCard = (user: UserStats) => (
+    <div key={user.id} className={commonStyles.cardWithHover}>
+      <div className="p-4">
+        <div className="flex items-center space-x-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+            <span className="text-blue-400 font-medium text-lg">
+              {user.full_name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div className="flex-grow">
+            <h4 className={`${commonStyles.text} font-medium`}>{user.full_name}</h4>
+            <p className="text-sm text-gray-400">
+              Member since: {new Date(user.created_at).toLocaleDateString()}
+            </p>
+          </div>
         </div>
       </div>
     </div>
+  );
+
+  const renderUserCard = (user: UserStats) => (
+    <div key={user.id} className={commonStyles.cardWithHover}>
+      <div className="p-4">
+        <div className="flex items-center space-x-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+            <span className="text-blue-400 font-medium text-lg">
+              {user.full_name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div className="flex-grow">
+            <h4 className={`${commonStyles.text} font-medium`}>{user.full_name}</h4>
+            <p className="text-sm text-gray-400">
+              Member since: {new Date(user.created_at).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          <div className={`${commonStyles.cardWithHover} p-3`}>
+            <h5 className="text-sm text-gray-400 mb-1">Organizations Owned</h5>
+            <p className={`${commonStyles.text} font-medium`}>{user.owned_orgs}</p>
+          </div>
+          <div className={`${commonStyles.cardWithHover} p-3`}>
+            <h5 className="text-sm text-gray-400 mb-1">Organizations Joined</h5>
+            <p className={`${commonStyles.text} font-medium`}>{user.member_orgs}</p>
+          </div>
+          <div className={`${commonStyles.cardWithHover} p-3`}>
+            <h5 className="text-sm text-gray-400 mb-1">Tickets Created</h5>
+            <p className={`${commonStyles.text} font-medium`}>{user.tickets_created}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderUserGroup = (title: string, users: UserStats[], isAdmin: boolean = false) => (
+    <div className="mb-8 last:mb-0">
+      <h4 className={`${commonStyles.text} text-lg font-medium mb-4`}>{title}</h4>
+      <div className="space-y-4">
+        {users.map((user) => (
+          isAdmin ? renderAdminOrAgentCard(user) : renderUserCard(user)
+        ))}
+      </div>
+    </div>
+  );
+
+  if (!isOpen) return null;
+
+  return (
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={onClose}>
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-gray-900/80 backdrop-blur-sm" />
+        </Transition.Child>
+
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
+            >
+              <Dialog.Panel className={`${commonStyles.card} w-full max-w-4xl transform p-6`}>
+                <div className="absolute top-0 right-0 hidden pt-4 pr-4 sm:block">
+                  <button
+                    type="button"
+                    className="rounded-md text-gray-400 hover:text-gray-300 focus:outline-none"
+                    onClick={onClose}
+                  >
+                    <span className="sr-only">Close</span>
+                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="sm:flex sm:items-start">
+                  <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-sm sm:mx-0 sm:h-10 sm:w-10 ring-1 ring-white/10">
+                    <svg className="h-6 w-6 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
+                    <Dialog.Title as="h3" className={commonStyles.heading}>
+                      User Details
+                    </Dialog.Title>
+                    <div className="mt-4 max-h-[calc(90vh-12rem)] overflow-y-auto">
+                      {loading ? (
+                        <div className="flex justify-center py-8">
+                          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
+                        </div>
+                      ) : (
+                        <div>
+                          {users.admins.length > 0 && renderUserGroup('Administrators', users.admins, true)}
+                          {users.agents.length > 0 && renderUserGroup('Agents', users.agents, true)}
+                          {users.users.length > 0 && renderUserGroup('Users', users.users)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-6">
+                      <div className={commonStyles.buttonPrimary.wrapper}>
+                        <div className={commonStyles.buttonPrimary.gradient} />
+                        <button
+                          type="button"
+                          className={`${commonStyles.buttonPrimary.content} w-full !py-2`}
+                          onClick={onClose}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
   );
 } 

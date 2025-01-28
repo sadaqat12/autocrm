@@ -1,8 +1,38 @@
 [
   {
+    "table_name": "organization_users",
+    "column_name": "organization_id",
+    "foreign_table_name": "organizations",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "organization_users",
+    "column_name": "user_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "agent_organizations",
+    "column_name": "agent_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "agent_organizations",
+    "column_name": "organization_id",
+    "foreign_table_name": "organizations",
+    "foreign_column_name": "id"
+  },
+  {
     "table_name": "audit_log",
     "column_name": "user_id",
     "foreign_table_name": "profiles",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "ticket_attachments",
+    "column_name": "message_id",
+    "foreign_table_name": "ticket_messages",
     "foreign_column_name": "id"
   },
   {
@@ -27,36 +57,6 @@
     "table_name": "tickets",
     "column_name": "organization_id",
     "foreign_table_name": "organizations",
-    "foreign_column_name": "id"
-  },
-  {
-    "table_name": "agent_organizations",
-    "column_name": "agent_id",
-    "foreign_table_name": "profiles",
-    "foreign_column_name": "id"
-  },
-  {
-    "table_name": "agent_organizations",
-    "column_name": "organization_id",
-    "foreign_table_name": "organizations",
-    "foreign_column_name": "id"
-  },
-  {
-    "table_name": "organization_users",
-    "column_name": "organization_id",
-    "foreign_table_name": "organizations",
-    "foreign_column_name": "id"
-  },
-  {
-    "table_name": "organization_users",
-    "column_name": "user_id",
-    "foreign_table_name": "profiles",
-    "foreign_column_name": "id"
-  },
-  {
-    "table_name": "ticket_attachments",
-    "column_name": "message_id",
-    "foreign_table_name": "ticket_messages",
     "foreign_column_name": "id"
   }
 ]

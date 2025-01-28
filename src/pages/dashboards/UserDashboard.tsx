@@ -18,10 +18,10 @@ export default function UserDashboard() {
         <div className="max-w-4xl mx-auto">
           {/* Welcome Header */}
           <div className="text-center mb-12">
-            <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl mb-4">
+            <h1 className="text-3xl font-bold text-gray-100 sm:text-4xl mb-4">
               Welcome to AutoCRM
             </h1>
-            <p className="text-lg text-gray-600">
+            <p className="text-lg text-gray-300">
               Get started by creating your first organization or join an existing one
             </p>
           </div>
