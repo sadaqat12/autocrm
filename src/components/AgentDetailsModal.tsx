@@ -8,11 +8,6 @@ interface AgentDetailsModalProps {
   onClose: () => void;
 }
 
-interface Organization {
-  id: string;
-  name: string;
-}
-
 interface AgentProfile {
   id: string;
   full_name: string;
@@ -30,11 +25,6 @@ interface AgentStats {
     completed_tickets: number;
     satisfaction_score: number;
   }[];
-}
-
-interface OrganizationResponse {
-  id: string;
-  name: string;
 }
 
 interface OrganizationUserResponse {

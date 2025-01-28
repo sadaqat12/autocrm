@@ -129,8 +129,8 @@ export default function TicketDetailsModal({ isOpen, onClose }: TicketDetailsMod
         avg_response_time: `${Math.round(avgResponseTimeHours)}h`,
         avg_resolution_time: `${Math.round(avgResolutionTimeHours)}h`,
         satisfaction_rate: Math.round(satisfactionRate),
-        by_organization: byOrganization,
-        by_agent: byAgent
+        by_organization: byOrganization as { name: string; total: number; open: number; closed: number; }[],
+        by_agent: byAgent as { name: string; assigned: number; resolved: number; }[]
       });
 
     } catch (err: any) {

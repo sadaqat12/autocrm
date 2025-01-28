@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Ticket as TicketType, TicketStatus, TicketPriority, MessageType, SystemRole, OrgRole } from '../lib/types';
+import { Ticket as TicketType, TicketStatus, TicketPriority, MessageType, OrgRole } from '../lib/types';
 import Logo from '../components/Logo';
 import '../styles/animations.css';
 
@@ -130,7 +130,6 @@ export default function TicketDetails() {
   const [ticket, setTicket] = useState<TicketWithProfiles | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<Profile[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showPriorityModal, setShowPriorityModal] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -678,7 +677,6 @@ export default function TicketDetails() {
 
   const handleAssign = async (agentId: string) => {
     if (!ticket || !ticketId || !profile?.id || !canUpdateTicket(profile, ticket)) return;
-    setSelectedAgent(agentId);
     setSaving(true);
     try {
       // First update the ticket assignment
@@ -794,7 +792,6 @@ export default function TicketDetails() {
 
       setTicket(updatedTicketWithOrgUsers as TicketWithProfiles);
       setShowAssignModal(false);
-      setSelectedAgent(null);
     } catch (error: any) {
       console.error('Error assigning ticket:', error);
     } finally {

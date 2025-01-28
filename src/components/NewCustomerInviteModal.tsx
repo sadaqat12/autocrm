@@ -1,7 +1,6 @@
 import { Fragment, useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/AuthContext';
 import { commonStyles } from '../styles/theme';
 
 interface NewCustomerInviteModalProps {
@@ -12,7 +11,6 @@ interface NewCustomerInviteModalProps {
 }
 
 export default function NewCustomerInviteModal({ isOpen, onClose, onSuccess, organizationId }: NewCustomerInviteModalProps) {
-  const { profile } = useAuth();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

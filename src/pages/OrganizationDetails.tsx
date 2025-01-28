@@ -5,7 +5,6 @@ import { useAuth } from '../lib/AuthContext';
 import NewCustomerInviteModal from '../components/NewCustomerInviteModal';
 import NewTicketModal from '../components/NewTicketModal';
 import { Organization, OrgRole } from '../lib/types';
-import Logo from '../components/Logo';
 import Navbar from '../components/Navbar';
 import { commonStyles } from '../styles/theme';
 

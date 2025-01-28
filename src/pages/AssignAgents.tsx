@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import Logo from '../components/Logo';
 import Navbar from '../components/Navbar';
 import { commonStyles } from '../styles/theme';
 

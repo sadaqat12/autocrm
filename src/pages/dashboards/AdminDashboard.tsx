@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import Logo from '../../components/Logo';
 import Navbar from '../../components/Navbar';
 import UserDetailsModal from '../../components/UserDetailsModal';
 import AgentDetailsModal from '../../components/AgentDetailsModal';
@@ -33,9 +32,7 @@ export default function AdminDashboard() {
   const [showAgentDetails, setShowAgentDetails] = useState(false);
   const [showTicketDetails, setShowTicketDetails] = useState(false);
   const [showOrgDetails, setShowOrgDetails] = useState(false);
-  const [selectedTicketId, setSelectedTicketId] = useState<string>('');
   const navigate = useNavigate();
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   useEffect(() => {
     fetchOrganizationStats();
@@ -179,16 +176,6 @@ export default function AdminDashboard() {
   const handleRefresh = async () => {
     setLoading(true);
     await fetchOrganizationStats();
-  };
-
-  const handleSignOut = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      navigate('/login');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
   };
 
   const addAgentAction = {
@@ -442,11 +429,12 @@ export default function AdminDashboard() {
         isOpen={showAgentDetails}
         onClose={() => setShowAgentDetails(false)}
       />
-      <TicketDetailsModal
-        isOpen={showTicketDetails}
-        onClose={() => setShowTicketDetails(false)}
-        ticketId={selectedTicketId}
-      />
+      {showTicketDetails && (
+        <TicketDetailsModal
+          isOpen={showTicketDetails}
+          onClose={() => setShowTicketDetails(false)}
+        />
+      )}
       <OrganizationDetailsModal
         isOpen={showOrgDetails}
         onClose={() => setShowOrgDetails(false)}

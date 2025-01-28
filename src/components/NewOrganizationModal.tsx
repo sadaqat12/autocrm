@@ -25,7 +25,7 @@ export default function NewOrganizationModal({ isOpen, onClose, onSuccess }: New
 
     try {
       // Use a transaction to create both the organization and the owner relationship
-      const { data, error } = await supabase.rpc('create_organization', {
+      const { error } = await supabase.rpc('create_organization', {
         org_name: name,
         owner_id: user.id
       });
