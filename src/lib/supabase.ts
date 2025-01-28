@@ -8,7 +8,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: localStorage
+  }
+});
 
 // Create a supabase client with the service role key for admin operations
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {

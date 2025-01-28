@@ -1,34 +1,34 @@
 [
   {
     "table_name": "agent_organizations",
-    "columns": "id uuid NOT NULL DEFAULT uuid_generate_v4()\ncreated_at timestamp with time zone DEFAULT now()\norganization_id uuid NOT NULL\nagent_id uuid NOT NULL"
+    "columns": "agent_id uuid NOT NULL\norganization_id uuid NOT NULL\ncreated_at timestamp with time zone DEFAULT now()\nid uuid NOT NULL DEFAULT uuid_generate_v4()"
   },
   {
     "table_name": "audit_log",
-    "columns": "from_value character varying\nto_value character varying\ncreated_at timestamp with time zone DEFAULT now()\nid uuid NOT NULL DEFAULT uuid_generate_v4()\nticket_id uuid\nuser_id uuid\nevent_type character varying NOT NULL"
+    "columns": "ticket_id uuid\nuser_id uuid\ncreated_at timestamp with time zone DEFAULT now()\nto_value character varying\nfrom_value character varying\nevent_type character varying NOT NULL\nid uuid NOT NULL DEFAULT uuid_generate_v4()"
   },
   {
     "table_name": "organization_users",
-    "columns": "role USER-DEFINED NOT NULL DEFAULT 'member'::org_role\nid uuid NOT NULL DEFAULT gen_random_uuid()\norganization_id uuid NOT NULL\nuser_id uuid NOT NULL\nstatus USER-DEFINED NOT NULL DEFAULT 'pending'::org_user_status\nis_creator boolean NOT NULL DEFAULT false\ncreated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now())"
+    "columns": "user_id uuid NOT NULL\nrole USER-DEFINED NOT NULL DEFAULT 'member'::org_role\nstatus USER-DEFINED NOT NULL DEFAULT 'pending'::org_user_status\nis_creator boolean NOT NULL DEFAULT false\ncreated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now())\nid uuid NOT NULL DEFAULT gen_random_uuid()\norganization_id uuid NOT NULL"
   },
   {
     "table_name": "organizations",
-    "columns": "created_at timestamp with time zone DEFAULT now()\nname character varying NOT NULL\nid uuid NOT NULL DEFAULT uuid_generate_v4()"
+    "columns": "name character varying NOT NULL\ncreated_at timestamp with time zone DEFAULT now()\nid uuid NOT NULL DEFAULT uuid_generate_v4()"
   },
   {
     "table_name": "profiles",
-    "columns": "role USER-DEFINED NOT NULL DEFAULT 'user'::system_role\nmetadata jsonb\ncreated_at timestamp with time zone DEFAULT now()\nfull_name character varying NOT NULL\nphone character varying\nid uuid NOT NULL"
+    "columns": "metadata jsonb\nid uuid NOT NULL\nfull_name character varying NOT NULL\ncreated_at timestamp with time zone DEFAULT now()\nphone character varying\nrole USER-DEFINED NOT NULL DEFAULT 'user'::system_role"
   },
   {
     "table_name": "ticket_attachments",
-    "columns": "file_url text NOT NULL\ncreated_at timestamp with time zone DEFAULT now()\nticket_id uuid NOT NULL\nmessage_id uuid\nid uuid NOT NULL DEFAULT uuid_generate_v4()\nfile_name character varying NOT NULL"
+    "columns": "file_url text NOT NULL\nid uuid NOT NULL DEFAULT uuid_generate_v4()\nticket_id uuid NOT NULL\nmessage_id uuid\nfile_name character varying NOT NULL\ncreated_at timestamp with time zone DEFAULT now()"
   },
   {
     "table_name": "ticket_messages",
-    "columns": "created_by uuid NOT NULL\nid uuid NOT NULL DEFAULT uuid_generate_v4()\ncontent text NOT NULL\nmessage_type USER-DEFINED NOT NULL DEFAULT 'public'::message_type\ncreated_at timestamp with time zone DEFAULT now()\nticket_id uuid NOT NULL"
+    "columns": "created_at timestamp with time zone DEFAULT now()\nmessage_type USER-DEFINED NOT NULL DEFAULT 'public'::message_type\ncontent text NOT NULL\ncreated_by uuid NOT NULL\nticket_id uuid NOT NULL\nid uuid NOT NULL DEFAULT uuid_generate_v4()"
   },
   {
     "table_name": "tickets",
-    "columns": "subject character varying NOT NULL\npriority USER-DEFINED NOT NULL DEFAULT 'medium'::ticket_priority\ncategory USER-DEFINED NOT NULL DEFAULT 'support'::ticket_category\ntags ARRAY\ncreated_at timestamp with time zone DEFAULT now()\nupdated_at timestamp with time zone DEFAULT now()\nid uuid NOT NULL DEFAULT uuid_generate_v4()\norganization_id uuid NOT NULL\ncreated_by uuid NOT NULL\nassigned_to uuid\nstatus USER-DEFINED NOT NULL DEFAULT 'open'::ticket_status"
+    "columns": "priority USER-DEFINED NOT NULL DEFAULT 'medium'::ticket_priority\ncategory USER-DEFINED NOT NULL DEFAULT 'support'::ticket_category\ntags ARRAY\nid uuid NOT NULL DEFAULT uuid_generate_v4()\nupdated_at timestamp with time zone DEFAULT now()\nfirst_response_at timestamp with time zone\ncreated_at timestamp with time zone DEFAULT now()\norganization_id uuid NOT NULL\ncreated_by uuid NOT NULL\nassigned_to uuid\nsubject character varying NOT NULL\nstatus USER-DEFINED NOT NULL DEFAULT 'open'::ticket_status"
   }
 ]

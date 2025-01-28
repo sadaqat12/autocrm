@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import NewCustomerInviteModal from '../components/NewCustomerInviteModal';
 import NewTicketModal from '../components/NewTicketModal';
 import { Organization, OrgRole } from '../lib/types';
 import Logo from '../components/Logo';
+import Navbar from '../components/Navbar';
+import { commonStyles } from '../styles/theme';
 
 interface OrganizationDetailsProps {
   organization: Organization;
@@ -66,6 +68,7 @@ interface SupabaseUserWithProfile {
 
 export default function OrganizationDetails({ organization }: OrganizationDetailsProps) {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [closedTickets, setClosedTickets] = useState<Ticket[]>([]);
@@ -121,7 +124,7 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
       
       setIsAdmin(profileData?.role === 'admin');
 
-      // Fetch open tickets
+      // Fetch open tickets with full details
       const { data: openTicketData, error: openTicketError } = await supabase
         .from('tickets')
         .select(`
@@ -140,12 +143,11 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         `)
         .eq('organization_id', organization.id)
         .neq('status', 'closed')
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .order('created_at', { ascending: false });
 
       if (openTicketError) throw openTicketError;
       
-      // Fetch closed tickets
+      // Fetch closed tickets with full details
       const { data: closedTicketData, error: closedTicketError } = await supabase
         .from('tickets')
         .select(`
@@ -164,38 +166,28 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         `)
         .eq('organization_id', organization.id)
         .eq('status', 'closed')
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .order('created_at', { ascending: false });
 
       if (closedTicketError) throw closedTicketError;
 
       // Get total tickets count
-      const { count: totalTickets, error: totalTicketsError } = await supabase
-        .from('tickets')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization.id);
+      const totalTickets = (openTicketData?.length || 0) + (closedTicketData?.length || 0);
 
-      if (totalTicketsError) throw totalTicketsError;
-
-      // Get open tickets count
-      const { count: openTickets, error: openTicketsError } = await supabase
-        .from('tickets')
+      // Get active customers count
+      const { count: activeUsers, error: activeUsersError } = await supabase
+        .from('organization_users')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', organization.id)
-        .neq('status', 'closed');
+        .eq('status', 'accepted')
+        .eq('role', 'member');
 
-      if (openTicketsError) throw openTicketsError;
+      if (activeUsersError) throw activeUsersError;
 
-      // Calculate average response time by first getting all tickets
-      const { data: tickets, error: ticketsError } = await supabase
-        .from('tickets')
-        .select('id, created_at, created_by')
-        .eq('organization_id', organization.id);
+      // Calculate average response time
+      const allTickets = [...(openTicketData || []), ...(closedTicketData || [])];
+      const ticketIds = allTickets.map(t => t.id);
 
-      if (ticketsError) throw ticketsError;
-
-      // Then get all messages for these tickets
-      const ticketIds = tickets?.map(t => t.id) || [];
+      // Get all messages for these tickets
       const { data: messages, error: messagesError } = await supabase
         .from('ticket_messages')
         .select('ticket_id, created_at, created_by')
@@ -204,10 +196,10 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
 
       if (messagesError) throw messagesError;
 
-      // Get all agent and owner IDs for this organization
+      // Get all staff IDs (agents and owners)
       const { data: orgStaff, error: orgStaffError } = await supabase
         .from('organization_users')
-        .select('user_id, role')
+        .select('user_id')
         .eq('organization_id', organization.id)
         .eq('status', 'accepted')
         .in('role', ['admin', 'owner']);
@@ -220,32 +212,46 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
       let totalResponseTime = 0;
       let ticketsWithResponses = 0;
 
-      tickets?.forEach(ticket => {
-        const ticketCreatedAt = new Date(ticket.created_at);
+      allTickets.forEach(ticket => {
+        const ticketCreatedAt = new Date(ticket.created_at).getTime();
         const ticketMessages = messages?.filter(m => m.ticket_id === ticket.id) || [];
-        // Find first response from an agent or owner
-        const firstAgentResponse = ticketMessages.find(m => staffIds.includes(m.created_by));
         
-        if (firstAgentResponse) {
-          const responseTime = new Date(firstAgentResponse.created_at).getTime() - ticketCreatedAt.getTime();
-          totalResponseTime += responseTime;
-          ticketsWithResponses++;
+        // Find first response from staff (agent or owner)
+        const firstStaffResponse = ticketMessages.find(m => staffIds.includes(m.created_by));
+        
+        if (firstStaffResponse) {
+          const responseTime = new Date(firstStaffResponse.created_at).getTime() - ticketCreatedAt;
+          if (responseTime > 0) { // Only count valid response times
+            totalResponseTime += responseTime;
+            ticketsWithResponses++;
+          }
         }
       });
 
       const avgResponseTimeMs = ticketsWithResponses > 0 ? totalResponseTime / ticketsWithResponses : 0;
-      const avgResponseTimeHours = Math.round(avgResponseTimeMs / (1000 * 60 * 60) * 10) / 10; // Round to 1 decimal place
+      let avgResponseTime = '0h';
+
+      if (avgResponseTimeMs > 0) {
+        const hours = Math.floor(avgResponseTimeMs / (1000 * 60 * 60));
+        const minutes = Math.floor((avgResponseTimeMs % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (hours > 0) {
+          avgResponseTime = `${hours}h ${minutes}m`;
+        } else {
+          avgResponseTime = `${minutes}m`;
+        }
+      }
 
       // Set metrics
       setMetrics({
-        totalTickets: totalTickets || 0,
-        openTickets: openTickets || 0,
-        activeUsers: customers?.length || 0,
-        avgResponseTime: `${avgResponseTimeHours}h`
+        totalTickets,
+        openTickets: openTicketData?.length || 0,
+        activeUsers: activeUsers || 0,
+        avgResponseTime
       });
 
-      // Transform ticket data to match the Ticket type
-      const transformOpenTickets = (openTicketData || []).map((ticket: any): Ticket => ({
+      // Transform and set tickets
+      const transformedOpenTickets = (openTicketData || []).map((ticket: any): Ticket => ({
         id: ticket.id,
         organization_id: ticket.organization_id,
         subject: ticket.subject,
@@ -260,7 +266,7 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         }
       }));
 
-      const transformClosedTickets = (closedTicketData || []).map((ticket: any): Ticket => ({
+      const transformedClosedTickets = (closedTicketData || []).map((ticket: any): Ticket => ({
         id: ticket.id,
         organization_id: ticket.organization_id,
         subject: ticket.subject,
@@ -275,8 +281,8 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
         }
       }));
 
-      setTickets(transformOpenTickets);
-      setClosedTickets(transformClosedTickets);
+      setTickets(transformedOpenTickets);
+      setClosedTickets(transformedClosedTickets);
 
       // Fetch customers (organization users)
       const { data: customerData, error: customerError } = await supabase
@@ -391,370 +397,367 @@ export default function OrganizationDetails({ organization }: OrganizationDetail
 
   const canManageOrg = userRole === 'owner' || userRole === 'admin';
 
+  const createTicketAction = {
+    label: 'Create Ticket',
+    icon: (
+      <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+      </svg>
+    ),
+    onClick: () => setShowNewTicketModal(true)
+  };
+
+  const inviteCustomerAction = {
+    label: 'Invite Customer',
+    icon: (
+      <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+      </svg>
+    ),
+    onClick: () => setShowInviteModal(true)
+  };
+
+  const backToDashboardAction = {
+    label: 'Back to Dashboard',
+    icon: (
+      <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      </svg>
+    ),
+    onClick: () => navigate('/admin')
+  };
+
+  const navbarActions = [
+    backToDashboardAction,
+    createTicketAction,
+    ...(canManageOrg ? [inviteCustomerAction] : [])
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Header with Logo and Back Navigation */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-8">
-              <Logo size="medium" />
-              <Link
-                to="/admin"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <svg
-                  className="w-5 h-5 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-                Back to Dashboard
-              </Link>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowNewTicketModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Create Ticket
-              </button>
-              {canManageOrg && (
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  Invite Customer
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+    <div className={commonStyles.pageContainer}>
+      {/* Background patterns */}
+      <div className="absolute inset-0 z-0 opacity-30">
+        <div className="absolute inset-0" style={commonStyles.patterns.dots}></div>
+        <div className={`absolute h-screen w-screen ${commonStyles.patterns.grid}`}></div>
       </div>
 
-      {/* Organization Info */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">{organization.name}</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Created on {new Date(organization.created_at).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-        </div>
+      {/* Animated gradients */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-gradient-to-r from-blue-500/30 to-cyan-500/30 rounded-full mix-blend-screen filter blur-3xl opacity-50 animate-blob"></div>
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-full mix-blend-screen filter blur-3xl opacity-50 animate-blob animation-delay-2000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-indigo-500/30 to-blue-500/30 rounded-full mix-blend-screen filter blur-3xl opacity-50 animate-pulse"></div>
       </div>
 
-      {/* Stats Overview */}
-      {(canManageOrg || isAdmin) && metrics && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-blue-500 rounded-md p-3">
-                  <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Total Tickets</dt>
-                    <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">{metrics.totalTickets}</div>
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="relative z-10 space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header with Logo and Navigation */}
+        <Navbar
+          title={organization.name}
+          actions={navbarActions}
+        />
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
-                  <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Active Customers</dt>
-                    <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">{metrics.activeUsers}</div>
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-yellow-500 rounded-md p-3">
-                  <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Avg. Response Time</dt>
-                    <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">{metrics.avgResponseTime}</div>
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-red-500 rounded-md p-3">
-                  <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Open Tickets</dt>
-                    <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">{metrics.openTickets}</div>
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Admin-only Organization Owner Info */}
-      {isAdmin && owner && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-4 py-5 sm:p-6">
+        {/* Organization Info */}
+        <div className={commonStyles.card}>
+          <div className="p-6">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg leading-6 font-medium text-gray-900">Organization Owner</h3>
+              <div>
+                <h1 className={commonStyles.heading}>{organization.name}</h1>
+                <p className={`${commonStyles.text} mt-1`}>
+                  Created on {new Date(organization.created_at).toLocaleDateString()}
+                </p>
+              </div>
             </div>
-            <div className="mt-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
+          </div>
+        </div>
+
+        {/* Stats Overview */}
+        {(canManageOrg || isAdmin) && metrics && (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div className={commonStyles.cardWithHover}>
+              <div className="p-6">
                 <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                      <span className="text-blue-600 font-medium text-lg">
-                        {owner.full_name.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
+                  <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                    <svg className="h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
                   </div>
-                  <div className="ml-4">
-                    <h4 className="text-lg font-medium text-gray-900">{owner.full_name}</h4>
-                    <div className="mt-1 text-sm text-gray-500">
-                      Member since: {new Date(owner.created_at).toLocaleDateString()}
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className={`${commonStyles.text} truncate`}>Total Tickets</dt>
+                      <dd className="text-2xl font-semibold text-white">{metrics.totalTickets}</dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={commonStyles.cardWithHover}>
+              <div className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                    <svg className="h-6 w-6 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className={`${commonStyles.text} truncate`}>Active Customers</dt>
+                      <dd className="text-2xl font-semibold text-white">{metrics.activeUsers}</dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={commonStyles.cardWithHover}>
+              <div className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-yellow-500/20 to-orange-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                    <svg className="h-6 w-6 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className={`${commonStyles.text} truncate`}>Avg. Response Time</dt>
+                      <dd className="text-2xl font-semibold text-white">{metrics.avgResponseTime}</dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={commonStyles.cardWithHover}>
+              <div className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-red-500/20 to-pink-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                    <svg className="h-6 w-6 text-red-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className={`${commonStyles.text} truncate`}>Open Tickets</dt>
+                      <dd className="text-2xl font-semibold text-white">{metrics.openTickets}</dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Admin-only Organization Owner Info */}
+        {isAdmin && owner && (
+          <div className={commonStyles.card}>
+            <div className="p-6">
+              <div className="flex justify-between items-center">
+                <h3 className={commonStyles.heading}>Organization Owner</h3>
+              </div>
+              <div className="mt-4">
+                <div className={commonStyles.cardWithHover}>
+                  <div className="p-4">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                        <span className="text-blue-400 font-medium text-lg">
+                          {owner.full_name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="ml-4">
+                        <h4 className={`${commonStyles.text} font-medium`}>{owner.full_name}</h4>
+                        <div className="mt-1 text-sm text-gray-400">
+                          Member since: {new Date(owner.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Admin-only Assigned Agents */}
-      {isAdmin && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-4 py-5 sm:p-6">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg leading-6 font-medium text-gray-900">Assigned Agents</h3>
-              <Link
-                to={`/assign-agents/${organization.id}`}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-500 hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
-              >
-                <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
-                Manage Agents
-              </Link>
-            </div>
-            <div className="mt-4">
-              {agents.length === 0 ? (
-                <p className="text-gray-500">No agents assigned</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {agents.map((agent) => (
-                    <div key={agent.id} className="bg-gray-50 p-4 rounded-lg">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                            <span className="text-yellow-600 font-medium text-lg">
-                              {agent.full_name.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <h4 className="font-medium text-gray-900">{agent.full_name}</h4>
-                          <div className="mt-1 text-sm text-gray-500">
-                            Assigned since: {new Date(agent.created_at).toLocaleDateString()}
+        {/* Admin-only Assigned Agents */}
+        {isAdmin && (
+          <div className={commonStyles.card}>
+            <div className="p-6">
+              <div className="flex justify-between items-center">
+                <h3 className={commonStyles.heading}>Assigned Agents</h3>
+                <div className={commonStyles.buttonPrimary.wrapper}>
+                  <div className={commonStyles.buttonPrimary.gradient} />
+                  <Link
+                    to={`/assign-agents/${organization.id}`}
+                    className={`${commonStyles.buttonPrimary.content} !py-2`}
+                  >
+                    <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                    Manage Agents
+                  </Link>
+                </div>
+              </div>
+              <div className="mt-4">
+                {agents.length === 0 ? (
+                  <div className={commonStyles.messageBox.info}>
+                    <p>No agents assigned</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {agents.map((agent) => (
+                      <div key={agent.id} className={commonStyles.cardWithHover}>
+                        <div className="p-4">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-500/20 to-orange-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                              <span className="text-yellow-400 font-medium text-lg">
+                                {agent.full_name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="ml-4">
+                              <h4 className={`${commonStyles.text} font-medium`}>{agent.full_name}</h4>
+                              <div className="mt-1 text-sm text-gray-400">
+                                Assigned since: {new Date(agent.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Tickets Section */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Tickets</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Open Tickets */}
-            <div>
-              <h4 className="text-base font-medium text-gray-900 mb-3">Open Tickets</h4>
-              {tickets.length === 0 ? (
-                <p className="text-gray-500">No open tickets</p>
-              ) : (
-                <div className="space-y-4">
-                  {tickets.map((ticket) => (
-                    <Link
-                      key={ticket.id}
-                      to={`/ticket/${ticket.id}`}
-                      className={`block p-4 rounded-lg hover:bg-opacity-90 transition-colors duration-200 ${
-                        ticket.priority === 'high' ? 'bg-red-50/50 border-l-4 border-red-500' :
-                        ticket.priority === 'medium' ? 'bg-yellow-50/50 border-l-4 border-yellow-500' :
-                        'bg-green-50/50 border-l-4 border-green-500'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className={`font-medium ${
-                            ticket.priority === 'high' ? 'text-red-900' :
-                            ticket.priority === 'medium' ? 'text-yellow-900' :
-                            'text-green-900'
-                          }`}>{ticket.subject}</h4>
-                          <div className="mt-1 text-sm text-gray-600">
-                            Created by: {ticket.created_by.full_name}
+        {/* Tickets Section */}
+        <div className={commonStyles.card}>
+          <div className="p-6">
+            <h3 className={commonStyles.heading}>Tickets</h3>
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Open Tickets */}
+              <div>
+                <h4 className={`${commonStyles.text} font-medium mb-3`}>Open Tickets</h4>
+                {tickets.length === 0 ? (
+                  <div className={commonStyles.messageBox.info}>
+                    <p>No open tickets</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {tickets.map((ticket) => (
+                      <Link
+                        key={ticket.id}
+                        to={`/ticket/${ticket.id}`}
+                        className={commonStyles.cardWithHover}
+                      >
+                        <div className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className={`flex-shrink-0 w-2 h-2 rounded-full ${
+                                ticket.priority === 'high' ? 'bg-red-400' :
+                                ticket.priority === 'medium' ? 'bg-yellow-400' :
+                                'bg-green-400'
+                              }`} />
+                              <div>
+                                <h5 className={`${commonStyles.text} font-medium`}>{ticket.subject}</h5>
+                                <p className="text-sm text-gray-400">
+                                  Created by: {ticket.created_by.full_name}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              {new Date(ticket.created_at).toLocaleDateString()}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            ticket.priority === 'high' ? 'bg-red-100 text-red-800 border border-red-200' :
-                            ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
-                            'bg-green-100 text-green-800 border border-green-200'
-                          }`}>
-                            {ticket.priority}
-                          </span>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            {ticket.category}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center text-sm text-gray-600 space-x-4">
-                        <span>Created: {new Date(ticket.created_at).toLocaleString()}</span>
-                        <span>•</span>
-                        <span>Status: {ticket.status}</span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {/* Closed Tickets */}
-            <div>
-              <h4 className="text-base font-medium text-gray-900 mb-3">Closed Tickets</h4>
-              {closedTickets.length === 0 ? (
-                <p className="text-gray-500">No closed tickets</p>
-              ) : (
-                <div className="space-y-4">
-                  {closedTickets.map((ticket) => (
-                    <Link
-                      key={ticket.id}
-                      to={`/ticket/${ticket.id}`}
-                      className="block p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium text-gray-900">{ticket.subject}</h4>
-                          <div className="mt-1 text-sm text-gray-600">
-                            Created by: {ticket.created_by.full_name}
+              {/* Closed Tickets */}
+              <div>
+                <h4 className={`${commonStyles.text} font-medium mb-3`}>Closed Tickets</h4>
+                {closedTickets.length === 0 ? (
+                  <div className={commonStyles.messageBox.info}>
+                    <p>No closed tickets</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {closedTickets.map((ticket) => (
+                      <Link
+                        key={ticket.id}
+                        to={`/ticket/${ticket.id}`}
+                        className={commonStyles.cardWithHover}
+                      >
+                        <div className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="flex-shrink-0 w-2 h-2 rounded-full bg-gray-400" />
+                              <div>
+                                <h5 className={`${commonStyles.text} font-medium`}>{ticket.subject}</h5>
+                                <p className="text-sm text-gray-400">
+                                  Created by: {ticket.created_by.full_name}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              {new Date(ticket.created_at).toLocaleDateString()}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            {ticket.category}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center text-sm text-gray-600 space-x-4">
-                        <span>Closed: {new Date(ticket.created_at).toLocaleString()}</span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Customers Section - Only shown for admins/owners */}
+      {/* Customers Section */}
       {(canManageOrg || isAdmin) && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-4 py-5 sm:p-6">
+        <div className={commonStyles.card}>
+          <div className="p-6">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg leading-6 font-medium text-gray-900">Customers</h3>
+              <h3 className={commonStyles.heading}>Customers</h3>
               {canManageOrg && (
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  Invite Customer
-                </button>
+                <div className={commonStyles.buttonPrimary.wrapper}>
+                  <div className={commonStyles.buttonPrimary.gradient} />
+                  <button
+                    onClick={() => setShowInviteModal(true)}
+                    className={`${commonStyles.buttonPrimary.content} !py-2`}
+                  >
+                    <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                    Invite Customer
+                  </button>
+                </div>
               )}
             </div>
             <div className="mt-4">
               {customers.length === 0 ? (
-                <p className="text-gray-500">No customers yet</p>
+                <div className={commonStyles.messageBox.info}>
+                  <p>No customers yet</p>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {customers.map((customer) => (
-                    <div key={customer.id} className="bg-gray-50 p-4 rounded-lg">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                            <span className="text-blue-600 font-medium text-lg">
+                    <div key={customer.id} className={commonStyles.cardWithHover}>
+                      <div className="p-4">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/10">
+                            <span className="text-blue-400 font-medium text-lg">
                               {customer.full_name.charAt(0).toUpperCase()}
                             </span>
                           </div>
-                        </div>
-                        <div className="ml-4">
-                          <h4 className="font-medium text-gray-900">{customer.full_name}</h4>
-                          <div className="mt-1 text-sm text-gray-500">
-                            <div>Total Tickets: {customer.total_tickets}</div>
-                            <div>Joined: {new Date(customer.created_at).toLocaleDateString()}</div>
+                          <div className="ml-4">
+                            <h4 className={`${commonStyles.text} font-medium`}>{customer.full_name}</h4>
+                            <div className="mt-1 text-sm text-gray-400">
+                              <div>Total Tickets: {customer.total_tickets}</div>
+                              <div>Joined: {new Date(customer.created_at).toLocaleDateString()}</div>
+                            </div>
                           </div>
                         </div>
                       </div>
