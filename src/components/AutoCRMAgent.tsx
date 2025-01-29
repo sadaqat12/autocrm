@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 import { processUserMessage, ChatMessage } from '../lib/aiService';
 import { useAuth } from '../lib/AuthContext';
 

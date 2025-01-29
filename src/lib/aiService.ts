@@ -297,17 +297,6 @@ REASONING:[brief explanation for each match]`;
   }
 }
 
-// Helper function to extract keywords from text
-function extractKeywords(text: string): string {
-  const words = text.toLowerCase().split(/\W+/);
-  const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
-  const keywords = words
-    .filter(word => word.length > 2 && !commonWords.has(word))
-    .slice(0, 10)
-    .join(', ');
-  return keywords;
-}
-
 // Update createTicket function with correct priority values
 async function createTicket(
   subject: string,
