@@ -43,18 +43,33 @@ const chatModel = new ChatOpenAI({
   temperature: 0.7,
 });
 
-// Add interface for conversation context
+// Update the conversation context interface
 interface ConversationContext {
-  currentTicket?: TicketWithMessages;
-  lastMentionedTickets?: TicketWithMessages[];
+  currentTicketId?: string;
+  currentTicketSubject?: string;
+  lastQuery?: string;
 }
 
-// Update the system template with correct priority values
+let conversationContext: ConversationContext = {};
+
+// Update the system template to be more explicit about ticket creation vs updates
 const systemTemplate = `You are an AI assistant for AutoCRM, a customer relationship management system.
 Your role is to help users find information about tickets and take actions when requested.
 
-When responding to ticket creation requests:
-1. ALWAYS use this exact format when creating a ticket:
+When users ask for information or updates:
+1. ONLY provide the requested information
+2. DO NOT send messages or take any actions
+3. FIRST try to find an existing ticket that matches the query
+4. Use this format for ticket updates:
+   "Here's the update on ticket #[ticket_id]:
+   Subject: [subject]
+   Status: [status]
+   Latest messages:
+   - [date]: [message]"
+
+When explicitly asked to create a NEW ticket:
+1. User must clearly request ticket creation (e.g., "create a ticket", "open a new ticket", "make a ticket")
+2. ALWAYS use this exact format:
    "I'll create a ticket with the following details:
    Subject: [subject]
    Content: [content]
@@ -62,15 +77,23 @@ When responding to ticket creation requests:
    Priority: [priority]
    Category: [category]"
 
-2. For organization ID, use one from the user's available organizations in the context
-3. For priority, use one of these exact values: low, medium, high
-4. For category, use one of these exact values: bug, feature request, support, billing, other
+When explicitly asked to send messages to existing tickets:
+1. User must clearly request to send a message (e.g., "send a message", "add a note", "reply")
+2. ALWAYS use this exact format:
+   "I'll send a message to ticket #[ticket_id]:
+   [message_content]"
 
-For all other responses:
-1. Provide clear, concise information from the available ticket data
-2. Only take actions when explicitly requested
-3. Use the exact ticket IDs from the context
-4. Keep responses professional and focused
+Configuration details:
+1. For organization ID, use one from the user's available organizations in the context
+2. For priority, use one of these exact values: low, medium, high
+3. For category, use one of these exact values: bug, feature request, support, billing, other
+
+Important rules:
+1. NEVER send messages when users ask for updates or information
+2. Only create tickets when explicitly requested
+3. Always try to find existing tickets first
+4. Use the exact ticket IDs from the context
+5. Keep responses professional and focused
 
 Never reveal internal notes or system messages to users.`;
 
@@ -90,31 +113,60 @@ function getFullTicketId(tickets: TicketWithMessages[], shortId: string): string
   return ticket?.id || null;
 }
 
+// Update searchTickets with more detailed logging
 async function searchTickets(query: string, profile: UserProfile | null): Promise<TicketWithMessages[]> {
   try {
     const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
 
-    // Get the current user's organizations
+    // Get the current user's organizations with names
     const { data: userOrgs, error: orgError } = await supabase
       .from('user_organizations')
-      .select('organization_id');
+      .select('*, organizations(name)');
 
     if (orgError || !userOrgs?.length) {
       console.error('Organization query error:', orgError);
       return [];
     }
 
-    // First get the tickets
+    // Extract organization context from query
+    const orgKeywords = userOrgs.map(org => ({
+      id: org.organization_id,
+      name: org.organizations?.name?.toLowerCase() || ''
+    }));
+
+    let targetOrgIds = userOrgs.map(org => org.organization_id);
+    const queryLower = query.toLowerCase();
+    
+    // Check if query mentions specific organization
+    for (const org of orgKeywords) {
+      if (org.name && queryLower.includes(org.name.toLowerCase())) {
+        targetOrgIds = [org.id];
+        console.log('Found organization match:', org.name, 'ID:', org.id);
+        break;
+      }
+    }
+
+    console.log('Searching in organizations:', orgKeywords.map(org => org.name));
+    console.log('Target org IDs:', targetOrgIds);
+
+    // First get the tickets for target organizations
     const { data: tickets, error: ticketError } = await supabase
       .from('tickets')
       .select('*')
-      .in('organization_id', userOrgs.map(org => org.organization_id))
+      .in('organization_id', targetOrgIds)
       .order('updated_at', { ascending: false });
 
     if (ticketError || !tickets?.length) {
       console.error('Ticket query error:', ticketError);
       return [];
     }
+
+    console.log('All tickets found:', tickets.map(t => ({
+      id: t.id,
+      subject: t.subject,
+      org_id: t.organization_id,
+      org_name: orgKeywords.find(org => org.id === t.organization_id)?.name || 'Unknown'
+    })));
 
     // Then get the messages for these tickets
     const { data: messages, error: messageError } = await supabase
@@ -139,30 +191,121 @@ async function searchTickets(query: string, profile: UserProfile | null): Promis
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     }));
 
-    // Use AI to find relevant tickets
-    const searchPrompt = `Find tickets relevant to this query: "${query}"
+    // Log search terms
+    console.log('Search terms:', {
+      query: queryLower,
+      searchingFor: 'trash can',
+      inOrg: targetOrgIds[0]
+    });
+
+    // Do a direct subject search first
+    const directMatches = ticketsWithMessages.filter(ticket => {
+      // Extract meaningful terms from the query
+      const words = queryLower.split(/\s+/);
+      const stopWords = new Set([
+        'what', 'is', 'the', 'on', 'in', 'at', 'by', 'for', 'to', 'of',
+        'latest', 'update', 'status', 'about', 'regarding', 'concerning',
+        'org', 'organization', 'llc', 'inc', 'corp'
+      ]);
+      const searchTerms = words.filter(word => 
+        word.length > 2 && !stopWords.has(word)
+      );
+
+      // Check if any of the search terms appear in both query and subject/content
+      const hasMatchingTerms = searchTerms.some(term => 
+        ticket.subject.toLowerCase().includes(term) ||
+        ticket.messages.some((msg: TicketMessage) => msg.content.toLowerCase().includes(term))
+      );
+      
+      console.log('Checking ticket:', {
+        id: ticket.id,
+        subject: ticket.subject,
+        hasMatch: hasMatchingTerms,
+        searchTerms,
+        matchingTerms: searchTerms.filter(term => 
+          ticket.subject.toLowerCase().includes(term) ||
+          ticket.messages.some((msg: TicketMessage) => msg.content.toLowerCase().includes(term))
+        ),
+        org_id: ticket.organization_id,
+        org_name: orgKeywords.find(org => org.id === ticket.organization_id)?.name || 'Unknown'
+      });
+      
+      return hasMatchingTerms;
+    });
+
+    if (directMatches.length > 0) {
+      console.log('Found direct matches:', directMatches.map(t => ({
+        id: t.id,
+        subject: t.subject,
+        org_id: t.organization_id,
+        org_name: orgKeywords.find(org => org.id === t.organization_id)?.name || 'Unknown'
+      })));
+      return directMatches;
+    }
+
+    // If no direct matches, use AI for semantic search
+    const searchPrompt = `Given this user query: "${query}"
 
 Available tickets:
 ${ticketsWithMessages.map((ticket, index) => `
 ${index + 1}. Subject: ${ticket.subject}
+   Organization: ${userOrgs.find(org => org.organization_id === ticket.organization_id)?.organizations?.name || 'Unknown'}
    Content: ${ticket.messages.slice(0, 3).map((msg: TicketMessage) => msg.content).join(' | ')}
+   Status: ${ticket.status}
+   Priority: ${ticket.priority}
+   Category: ${ticket.category}
 `).join('\n')}
 
-Return relevant ticket indices (comma-separated) or "none".
-Consider subject, content, and semantic meaning when matching.`;
+Task: Find tickets that are semantically relevant to the query.
+Consider these types of matches:
+1. Direct keyword matches (highest priority)
+2. Common synonyms and variations
+3. Related concepts
+4. Context clues
+
+Return in this format:
+MATCHES:[indices]
+REASONING:[brief explanation for each match]`;
 
     const searchResponse = await chatModel.invoke([new HumanMessage(searchPrompt)]);
-    const indices = searchResponse.content.toString()
+    const content = searchResponse.content.toString();
+    console.log('Search response:', content);
+    
+    const matchesMatch = content.match(/MATCHES:([^\n]+)/);
+    if (!matchesMatch || matchesMatch[1].trim().toLowerCase() === 'none') {
+      console.log('No matches found in AI search');
+      return [];
+    }
+
+    const indices = matchesMatch[1].trim()
       .split(',')
       .map(i => parseInt(i.trim()))
       .filter(i => !isNaN(i) && i > 0 && i <= ticketsWithMessages.length)
       .map(i => i - 1);
 
-    return indices.map(i => ticketsWithMessages[i]);
+    const results = indices.map(i => ticketsWithMessages[i]);
+    console.log('AI search results:', results.map(t => ({
+      id: t.id,
+      subject: t.subject,
+      org_id: t.organization_id
+    })));
+
+    return results;
   } catch (error) {
     console.error('Error searching tickets:', error);
     return [];
   }
+}
+
+// Helper function to extract keywords from text
+function extractKeywords(text: string): string {
+  const words = text.toLowerCase().split(/\W+/);
+  const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
+  const keywords = words
+    .filter(word => word.length > 2 && !commonWords.has(word))
+    .slice(0, 10)
+    .join(', ');
+  return keywords;
 }
 
 // Update createTicket function with correct priority values
@@ -286,7 +429,7 @@ async function createTicketMessage(
   }
 }
 
-// Update extractActionFromResponse to properly parse ticket creation format
+// Update extractActionFromResponse to be more conservative about ticket creation
 async function extractActionFromResponse(response: string, tickets: TicketWithMessages[]): Promise<{ 
   action: string; 
   ticketId?: string; 
@@ -299,7 +442,12 @@ async function extractActionFromResponse(response: string, tickets: TicketWithMe
     category?: string;
   };
 } | null> {
-  // First try to match ticket creation format directly
+  // First check if this is just an information response
+  if (response.startsWith("Here's the update on ticket #")) {
+    return null;
+  }
+
+  // Check for explicit ticket creation request
   const ticketCreationMatch = response.match(/I'll create a ticket with the following details:\s*Subject: ([^\n]+)\s*Content: ([^\n]+)\s*Organization ID: ([^\n]+)\s*Priority: ([^\n]+)\s*Category: ([^\n]+)/i);
   
   if (ticketCreationMatch) {
@@ -315,29 +463,58 @@ async function extractActionFromResponse(response: string, tickets: TicketWithMe
     };
   }
 
-  // If not a direct ticket creation, use the AI to extract other actions
+  // Check for explicit message sending
+  const messageSendingMatch = response.match(/I'll send a message to ticket #([^:]+):\s*([^\n]+)/i);
+  
+  if (messageSendingMatch) {
+    const shortId = messageSendingMatch[1].trim();
+    const fullId = getFullTicketId(tickets, shortId);
+    
+    if (!fullId) {
+      console.error('Could not find full ticket ID for:', shortId);
+      return null;
+    }
+
+    return {
+      action: 'send_message',
+      ticketId: fullId,
+      message: messageSendingMatch[2].trim()
+    };
+  }
+
+  // If no explicit patterns match, use AI to analyze for clear action intent
   const extractionPrompt = `
 Given this AI response: "${response}"
 
-Analyze if this response indicates an intention to send a message or take another action.
+Carefully analyze if this response indicates a CLEAR AND EXPLICIT intention to:
+1. Create a new ticket (must include phrases like "create a ticket", "open a new ticket")
+2. Send a message (must include phrases like "send a message", "add a note")
 
-For message sending, look for:
-- "I'll send a message..."
-- "I will add a note..."
-- "I'll let them know..."
-- "I'll inform them..."
+This should be an explicit statement of action, not just information sharing.
 
-If an action is found, extract:
-1. The action type (e.g., "send_message")
-2. The ticket ID
-3. The message content
+Information sharing (NOT actions):
+- "The latest message is..."
+- "Here's what I found..."
+- "The ticket status is..."
+- "The most recent update shows..."
+- "There is a problem with..."
+- "Issue reported in..."
 
-Return in this format if an action is found:
+Action indicators (these ARE actions):
+- "I'll create a new ticket for..."
+- "Let me open a ticket about..."
+- "I'll send a message saying..."
+- "I will add a note that..."
+
+If an action is found, it must be an explicit statement of creating a ticket or sending a message.
+Do not extract actions from responses that are just providing information or describing issues.
+
+Return in this format if a clear action is found:
 ACTION:action_type
 TICKET:ticket_id
 MESSAGE:message_content
 
-Return "NONE" if no action is found.`;
+Return "NONE" if the response is just providing information or if the action intent is not explicit.`;
 
   const extractionResponse = await chatModel.invoke([new HumanMessage(extractionPrompt)]);
   const content = extractionResponse.content.toString();
@@ -369,79 +546,188 @@ Return "NONE" if no action is found.`;
   return null;
 }
 
-// Update processUserMessage to handle ticket creation
+// Update identifyTicket to consider organization context
+async function identifyTicket(query: string, relevantTickets: TicketWithMessages[]): Promise<TicketWithMessages | null> {
+  const extractionPrompt = `
+Given this user query: "${query}"
+And this conversation context:
+- Last discussed ticket ID: ${conversationContext.currentTicketId || 'none'}
+- Last discussed ticket subject: ${conversationContext.currentTicketSubject || 'none'}
+- Last query: ${conversationContext.lastQuery || 'none'}
+
+Determine if:
+1. The user is referring to the same ticket as before
+2. The user is asking about a specific ticket (by ID, subject, or description)
+3. The user is asking about a new ticket
+4. The user mentions a specific organization
+
+Return in this format:
+SAME_TICKET:true/false
+TICKET_REFERENCE:[any specific ticket reference mentioned]
+ORGANIZATION:[any organization name mentioned]`;
+
+  const extractionResponse = await chatModel.invoke([new HumanMessage(extractionPrompt)]);
+  const content = extractionResponse.content.toString();
+  
+  const sameTicket = content.includes('SAME_TICKET:true');
+  const ticketRefMatch = content.match(/TICKET_REFERENCE:([^\n]+)/);
+  const ticketRef = ticketRefMatch ? ticketRefMatch[1].trim() : null;
+  const orgMatch = content.match(/ORGANIZATION:([^\n]+)/);
+  const orgRef = orgMatch ? orgMatch[1].trim() : null;
+
+  if (sameTicket && conversationContext.currentTicketId) {
+    const ticket = relevantTickets.find(t => t.id === conversationContext.currentTicketId);
+    // If org is mentioned, make sure the ticket belongs to that org
+    if (ticket && (!orgRef || relevantTickets.some(t => t.id === ticket.id))) {
+      return ticket;
+    }
+  }
+
+  if (ticketRef) {
+    // Try to find the ticket by ID, subject, or description
+    const matchedTickets = relevantTickets.filter(t => 
+      t.id.includes(ticketRef) || 
+      t.subject.toLowerCase().includes(ticketRef.toLowerCase()) ||
+      t.messages.some(m => m.content.toLowerCase().includes(ticketRef.toLowerCase()))
+    );
+
+    // If org is mentioned, filter by org
+    if (orgRef) {
+      return matchedTickets.find(t => relevantTickets.some(rt => rt.id === t.id)) || null;
+    }
+    
+    return matchedTickets[0] || null;
+  }
+
+  return null;
+}
+
+// Add interface for organization data
+interface Organization {
+  id: string;
+  name: string;
+}
+
+interface UserOrgWithDetails {
+  organization_id: string;
+  organizations: Organization;
+}
+
+// Update processUserMessage to use proper types
 export async function processUserMessage(
   messages: ChatMessage[],
   query: string,
   profile: UserProfile | null
 ): Promise<string> {
   try {
-    // Get the user's organizations first
+    // Get the user's organizations with names
     const { data: userOrgs, error: orgError } = await supabase
       .from('user_organizations')
-      .select('organization_id');
+      .select('organization_id, organizations(id, name)') as { data: UserOrgWithDetails[] | null, error: any };
 
     if (orgError || !userOrgs?.length) {
       console.error('Organization query error:', orgError);
       return "I couldn't access your organization information. Please try again later.";
     }
 
+    // Create a map of organization names to IDs for easier lookup
+    const orgMap = new Map(userOrgs.map(org => [
+      org.organizations?.name?.toLowerCase() || '',
+      org.organization_id
+    ]));
+
     // Search for relevant tickets
     const relevantTickets = await searchTickets(query, profile);
     
-    // Get AI response with organization context
+    // Identify the specific ticket being discussed
+    const identifiedTicket = await identifyTicket(query, relevantTickets);
+    
+    // Update conversation context
+    if (identifiedTicket) {
+      conversationContext = {
+        currentTicketId: identifiedTicket.id,
+        currentTicketSubject: identifiedTicket.subject,
+        lastQuery: query
+      };
+    }
+
+    // Get AI response with context
     const response = await chatModel.invoke([
       new SystemMessage(systemTemplate),
       ...messages.map(msg => msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)),
-      new HumanMessage(`Available organizations: ${userOrgs.map(org => org.organization_id).join(', ')}
+      new HumanMessage(`Available organizations:
+${userOrgs.map(org => `- ${org.organizations.name} (ID: ${org.organization_id})`).join('\n')}
 
-${relevantTickets.length > 0 ? `Relevant tickets:
-${relevantTickets.map(ticket => `
+${identifiedTicket ? `Current ticket being discussed:
+Ticket #${identifiedTicket.id}
+Subject: ${identifiedTicket.subject}
+Status: ${identifiedTicket.status}
+Organization: ${userOrgs.find(org => org.organization_id === identifiedTicket.organization_id)?.organizations.name || 'Unknown'}
+Latest updates:
+${identifiedTicket.messages.slice(0, 3).map(msg => 
+  `- ${new Date(msg.created_at).toLocaleDateString()}: ${msg.content}`
+).join('\n')}
+
+Other relevant tickets:` : 'Relevant tickets:'}
+${relevantTickets
+  .filter(t => t.id !== identifiedTicket?.id)
+  .map(ticket => `
 Ticket #${ticket.id}
 Subject: ${ticket.subject}
 Status: ${ticket.status}
+Organization: ${userOrgs.find(org => org.organization_id === ticket.organization_id)?.organizations.name || 'Unknown'}
 Latest updates:
 ${ticket.messages.slice(0, 3).map(msg => 
   `- ${new Date(msg.created_at).toLocaleDateString()}: ${msg.content}`
 ).join('\n')}
-`).join('\n')}` : ''}
+`).join('\n')}
 
 User query: ${query}`)
     ]);
 
-    console.log('AI Response:', response.content); // Debug log
-
-    // Check if action is needed
+    console.log('AI Response:', response.content);
     const action = await extractActionFromResponse(response.content.toString(), relevantTickets);
-    console.log('Extracted Action:', action); // Debug log
+    console.log('Extracted Action:', action);
 
     if (action?.action === 'send_message' && action.ticketId && action.message) {
       try {
         await createTicketMessage(action.ticketId, action.message);
         return `${response.content}\n\n✓ Message sent successfully.`;
       } catch (error: any) {
-        console.error('Error sending message:', error); // Debug log
+        console.error('Error sending message:', error);
         return `${response.content}\n\n❌ Failed to send message: ${error?.message || 'Unknown error'}`;
       }
     } else if (action?.action === 'create_ticket' && action.newTicket) {
-      console.log('Creating ticket with details:', action.newTicket); // Debug log
+      console.log('Creating ticket with details:', action.newTicket);
       try {
-        // Validate organization ID
-        if (!userOrgs.some(org => org.organization_id === action.newTicket?.organizationId)) {
-          throw new Error('Invalid organization ID');
+        // Check if the organization ID matches any organization names
+        const orgNameLower = query.toLowerCase();
+        let targetOrgId = action.newTicket.organizationId;
+
+        // Try to find organization ID by name in the query
+        for (const [orgName, orgId] of orgMap.entries()) {
+          if (orgName && orgNameLower.includes(orgName.toLowerCase())) {
+            targetOrgId = orgId;
+            break;
+          }
+        }
+
+        if (!userOrgs.some(org => org.organization_id === targetOrgId)) {
+          throw new Error('Invalid organization ID or organization not found');
         }
 
         const ticketId = await createTicket(
           action.newTicket.subject,
           action.newTicket.content,
-          action.newTicket.organizationId,
+          targetOrgId,
           action.newTicket.priority,
           action.newTicket.category
         );
-        console.log('Ticket created successfully:', ticketId); // Debug log
-        return `${response.content}\n\n✓ Ticket created successfully with ID: ${formatTicketIdForDisplay(ticketId)}`;
+        console.log('Ticket created successfully:', ticketId);
+        const orgName = userOrgs.find(org => org.organization_id === targetOrgId)?.organizations.name || 'Unknown';
+        return `${response.content}\n\n✓ Ticket created successfully in ${orgName} with ID: ${formatTicketIdForDisplay(ticketId)}`;
       } catch (error: any) {
-        console.error('Error creating ticket:', error); // Debug log
+        console.error('Error creating ticket:', error);
         return `${response.content}\n\n❌ Failed to create ticket: ${error?.message || 'Unknown error'}`;
       }
     }
